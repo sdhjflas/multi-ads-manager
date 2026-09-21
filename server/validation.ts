@@ -59,6 +59,7 @@ export const experimentInput = z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
+    sourceLearningId: z.string().uuid().optional(),
   })
   .strict();
 export type ExperimentInput = z.infer<typeof experimentInput>;

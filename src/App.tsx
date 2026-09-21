@@ -62,6 +62,7 @@ import {
 } from './forms';
 import { api, channelName, date, money, number, percent, timeAgo } from './lib';
 import { TargetExplorer, TargetDetail } from './TargetExplorer';
+import { WaveBoard, WaveDetail, WaveForm, LearningLibrary } from './Waves';
 
 type Page =
   | 'overview'
@@ -69,18 +70,26 @@ type Page =
   | 'books'
   | 'experiments'
   | 'targets'
+  | 'waves'
+  | 'learning'
   | 'intelligence'
   | 'connections'
   | 'activity'
   | 'blueprint';
 type ModalState =
   | { type: 'campaign' }
-  | { type: 'experiment'; targetId?: string }
+  | { type: 'experiment'; targetId?: string; learningId?: string }
   | { type: 'import' }
   | { type: 'target-import' }
   | {
       type:
-        'campaign-detail' | 'campaign-edit' | 'experiment-detail' | 'connection' | 'target-detail';
+        | 'campaign-detail'
+        | 'campaign-edit'
+        | 'experiment-detail'
+        | 'connection'
+        | 'target-detail'
+        | 'wave-form'
+        | 'wave-detail';
       id: string;
     }
   | null;
@@ -89,6 +98,8 @@ const nav: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'products', label: 'Product ads', icon: <ShoppingBag size={18} /> },
   { id: 'books', label: 'Amazon books', icon: <BookOpen size={18} /> },
   { id: 'experiments', label: 'Experiment lab', icon: <FlaskConical size={18} /> },
+  { id: 'waves', label: 'Test waves', icon: <ChartNoAxesCombined size={18} /> },
+  { id: 'learning', label: 'Learning library', icon: <BookOpen size={18} /> },
   { id: 'targets', label: 'Target explorer', icon: <Target size={18} /> },
   { id: 'intelligence', label: 'Intelligence', icon: <Sparkles size={18} /> },
   { id: 'connections', label: 'Connections', icon: <Unplug size={18} /> },
@@ -120,6 +131,16 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
     eyebrow: 'WHERE THE SIGNAL LIVES',
     title: 'Find what’s working. Understand why.',
     subtitle: 'Look inside your campaigns, from an individual keyword to a creative opening.',
+  },
+  waves: {
+    eyebrow: 'CLOSE THE LEARNING LOOP',
+    title: 'Give every test a clear question.',
+    subtitle: 'Freeze the plan. Measure the candidates. Carry the useful evidence forward.',
+  },
+  learning: {
+    eyebrow: 'YOUR ADVERTISING MEMORY',
+    title: 'Make the next test a better one.',
+    subtitle: 'An evidence trail for what worked, what failed, and what remains uncertain.',
   },
   intelligence: {
     eyebrow: 'EVIDENCE INTO ACTION',
@@ -243,6 +264,12 @@ export function App() {
     modal && 'id' in modal ? data?.campaigns.find((c) => c.id === modal.id) : undefined;
   const selectedExperiment =
     modal && 'id' in modal ? data?.experiments.find((e) => e.id === modal.id) : undefined;
+  const selectedWave =
+    modal?.type === 'wave-detail' ? data?.waves.find((w) => w.id === modal.id) : undefined;
+  const sourceLearning =
+    modal?.type === 'experiment'
+      ? data?.learnings.find((l) => l.id === modal.learningId)
+      : undefined;
   const selectedTarget =
     modal && (modal.type === 'target-detail' || modal.type === 'experiment')
       ? data?.targets.find((t) => t.id === ('id' in modal ? modal.id : modal.targetId))
@@ -737,7 +764,7 @@ export function App() {
                     </div>
                     <span className="lab-label">
                       <ShieldCheck size={15} />
-                      All experiments are drafts
+                      Plans and measured waves
                     </span>
                   </div>
                   <div className="section-heading">
@@ -793,7 +820,11 @@ export function App() {
                             </div>
                             <div className="experiment-body">
                               <div className="experiment-meta">
-                                <Badge kind="neutral">Draft experiment</Badge>
+                                <Badge kind="neutral">
+                                  {data.waves.some((w) => w.experimentId === experiment.id)
+                                    ? 'Measurement registered'
+                                    : 'Draft experiment'}
+                                </Badge>
                                 <span>{date(experiment.createdAt)}</span>
                               </div>
                               <h3>{experiment.name}</h3>
@@ -860,6 +891,22 @@ export function App() {
                     setModal({ type: 'target-import' });
                   }}
                   onOpen={(target) => setModal({ type: 'target-detail', id: target.id })}
+                />
+              )}
+              {page === 'waves' && (
+                <WaveBoard
+                  data={data}
+                  query={query}
+                  onOpen={(id) => setModal({ type: 'wave-detail', id })}
+                  onLab={() => navigate('experiments')}
+                />
+              )}
+              {page === 'learning' && (
+                <LearningLibrary
+                  data={data}
+                  query={query}
+                  onWave={(id) => setModal({ type: 'wave-detail', id })}
+                  onFollowUp={(learningId) => setModal({ type: 'experiment', learningId })}
                 />
               )}
               {page === 'intelligence' && (
@@ -1104,7 +1151,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.1<span className="footer-dot">·</span>Local advisory mode
+              Orbit v0.2<span className="footer-dot">·</span>Local advisory mode
               <ShieldCheck size={12} />
             </span>
           </footer>
@@ -1144,9 +1191,13 @@ export function App() {
                         ? selectedTarget?.label || 'Measured target'
                         : modal.type === 'campaign-detail'
                           ? selectedCampaign?.name || 'Campaign'
-                          : modal.type === 'experiment-detail'
-                            ? selectedExperiment?.name || 'Experiment'
-                            : `${connections.find((c) => c.id === modal.id)?.name} setup`
+                          : modal.type === 'wave-form'
+                            ? 'Register a measurement wave'
+                            : modal.type === 'wave-detail'
+                              ? selectedWave?.name || 'Test wave'
+                              : modal.type === 'experiment-detail'
+                                ? selectedExperiment?.name || 'Experiment'
+                                : `${connections.find((c) => c.id === modal.id)?.name} setup`
           }
           subtitle={
             modal.type === 'experiment'
@@ -1156,7 +1207,13 @@ export function App() {
                 : undefined
           }
           onClose={() => setModal(null)}
-          wide={['campaign-detail', 'experiment-detail', 'target-detail'].includes(modal.type)}
+          wide={[
+            'campaign-detail',
+            'experiment-detail',
+            'target-detail',
+            'wave-form',
+            'wave-detail',
+          ].includes(modal.type)}
         >
           {modal.type === 'campaign' && (
             <CampaignForm
@@ -1177,6 +1234,7 @@ export function App() {
             <ExperimentForm
               data={data}
               seedTarget={selectedTarget}
+              sourceLearning={sourceLearning}
               onSaved={() => saved('Experiment created. Your candidate library is ready.')}
               onCreateCampaign={() => setModal({ type: 'campaign' })}
             />
@@ -1243,6 +1301,7 @@ export function App() {
           {modal.type === 'experiment-detail' && selectedExperiment && (
             <ExperimentDetail
               experiment={selectedExperiment}
+              onRegister={() => setModal({ type: 'wave-form', id: selectedExperiment.id })}
               onUpdated={(updated) => {
                 setData((old) =>
                   old
@@ -1255,6 +1314,25 @@ export function App() {
                     : old,
                 );
               }}
+            />
+          )}
+          {modal.type === 'wave-form' && selectedExperiment && (
+            <WaveForm
+              data={data}
+              experiment={selectedExperiment}
+              onSaved={() => {
+                saved(
+                  'Measurement wave registered. Set up and monitor delivery in your ad console.',
+                );
+                navigate('waves');
+              }}
+            />
+          )}
+          {modal.type === 'wave-detail' && selectedWave && (
+            <WaveDetail
+              wave={selectedWave}
+              recorded={data.learnings.find((l) => l.id === selectedWave.latestLearningId)}
+              onSaved={saved}
             />
           )}
           {modal.type === 'connection' && <ConnectionDetail id={modal.id} />}
@@ -1397,7 +1475,7 @@ function Blueprint({ onConnection }: { onConnection: (id: string) => void }) {
             '01',
             'The working foundation',
             'Built in this release',
-            'Two portfolios, persistent local data, validated CSV imports, economics, hypothesis libraries, evidence reviews, and an optional AI idea provider.',
+            'Two portfolios, validated imports, hypothesis libraries, measured test waves, local planning reservations, evidence-linked learning, and an optional AI idea provider.',
           ],
           [
             '02',

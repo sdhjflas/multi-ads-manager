@@ -2,7 +2,7 @@
 
 A working local foundation for a profit-aware advertising manager, with equal emphasis on **product advertising** and **Amazon book advertising**.
 
-The application combines a dashboard, persistent campaign workspaces, validated performance imports, unit economics, an experiment library, a contribution model, and an operator decision journal. Optional OpenAI integration creates structured experiment ideas. The long-term architecture is in [the blueprint](docs/ARCHITECTURE.md), and the project/platform investigation is in [the research](docs/RESEARCH.md).
+The application combines a dashboard, persistent campaign workspaces, validated performance imports, unit economics, measured experiment waves, and a searchable learning library. Optional OpenAI integration creates structured experiment ideas informed by recorded findings. The long-term architecture is in [the blueprint](docs/ARCHITECTURE.md), and the project/platform investigation is in [the research](docs/RESEARCH.md).
 
 ## Run it
 
@@ -37,6 +37,8 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 | Campaign setup                  | Book/product identity, channel, click window, net receipts, variable costs, profit reserve, planning limits, readiness attestations                 |
 | Performance ingestion           | Normalized daily CSV and a documented English Amazon campaign-export profile; atomic upserts, freshness and contract validation                     |
 | Experiment lab                  | Up to 300 distinct template candidates, optional AI ideas, bounded shortlist waves, persistence, candidate CSV export                               |
+| Test waves                      | Frozen candidate/report mappings, baseline comparisons, maturity gates, local budget reservations, loss boundaries, and console setup sheets        |
+| Learning library                | Immutable findings, correction-aware revisions, searchable notes, and evidence-linked follow-up drafts                                              |
 | Evidence review                 | Deterministic economic gates and a documented Bayesian conversion model; recommendations and saved operator decisions                               |
 | Target explorer                 | Normalized keyword, product-target, and creative-cell imports, parent-report reconciliation, economic signals, and source-linked experiment seeds   |
 | Optional AI                     | Server-side Responses API with structured outputs, up to 24 ideas/request, bounded output, daily request reservations, no tools or platform actions |
@@ -56,6 +58,8 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 7. Record the recommendation decision. Manage actual advertising in the platform console until a separately tested execution integration exists.
 
 To look inside a campaign, open **Target explorer** and import the normalized target/creative template. Target facts remain separate from campaign totals. Inspect a measured cell, then use it as a seed for an experiment; the saved draft retains its source target.
+
+For the complete candidate → measured wave → recorded finding → follow-up workflow, see [Test waves and the learning loop](docs/EXPERIMENTS.md). Open **Test waves** in the demo for a book comparison ready to review and **Learning library** for an already recorded product finding. Local reservations and cancellations do not control platform delivery or bank funds.
 
 ## Optional AI configuration
 
@@ -85,6 +89,7 @@ server/engine.ts      Unit economics, attribution maturity, bounded posterior ca
 server/importer.ts    Explicit normalized and Amazon report mappings
 server/store.ts       Transactional local persistence and AI request reservations
 server/planner.ts     Distinct candidate generation and experiment plans
+server/waves.ts       Frozen plans, conditional comparisons, and learning revisions
 server/ai.ts          Optional structured AI ideas; no action tools
 tests/                Economic, import, API, and AI-boundary tests
 e2e/                  Browser journeys
@@ -92,6 +97,7 @@ docs/RESEARCH.md       Local project findings and primary-source research
 docs/ARCHITECTURE.md   Production architecture, optimizer design, and data boundaries
 docs/ROADMAP.md        Equal-track delivery plan and measurable gates
 docs/IMPORTS.md        Supported report contract and limitations
+docs/EXPERIMENTS.md    Measurement workflow, budget accounting, and evidence boundaries
 ```
 
 The repository is public. Use synthetic fixtures only; do not commit client reports, financial exports, credentials, or copies of private source project data.

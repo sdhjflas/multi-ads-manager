@@ -32,6 +32,14 @@ export async function generateIdeas(
   input: ExperimentInput,
   campaign: Campaign,
   fetcher: typeof fetch = fetch,
+  recordedLearning?: {
+    id: string;
+    hypothesis: string;
+    outcome: string;
+    finding: string;
+    notes: string;
+    candidate: string | null;
+  },
 ): Promise<Variant[]> {
   if (!aiConfig().configured)
     throw new AppError('Configure OPENAI_API_KEY and OPENAI_MODEL on the server first.', 503);
@@ -90,6 +98,7 @@ export async function generateIdeas(
               seedTerms: input.seedTerms,
               hypothesis: input.hypothesis,
               count: input.count,
+              ...(recordedLearning ? { recordedLearning } : {}),
             }),
           },
         ],

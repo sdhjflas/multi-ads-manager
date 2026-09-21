@@ -16,7 +16,21 @@ Both tracks have equal priority. Milestones are defined by evidence and function
 - Saved proposal decisions and a local journal.
 - Integration guides, primary-source research, and production architecture.
 
-The following milestones are **planned**, not features hidden behind placeholder connection buttons.
+## Milestone 0.2 — implemented measurement and learning loop
+
+- Immutable test-wave plans and candidate snapshots, with prospective versus historical registration.
+- Baseline/challenger mappings to console/report IDs for both portfolios, plus setup-sheet export.
+- Atomic local reservations against campaign and experiment allowances.
+- Full-window maturity, freshness, coverage, economics, and reconciliation checks.
+- Conditional contribution comparison bands accounting for the registered arm count.
+- Promising, baseline-leading, below-hurdle, and inconclusive findings.
+- Budget/loss review signals, local cancellation, and release of unused planning capacity.
+- Immutable recorded findings, correction-aware revisions, and a searchable learning library.
+- Evidence-linked follow-up experiments, with optional AI receiving the chosen finding as context.
+
+See [the workflow](EXPERIMENTS.md). This shared work advances part of Milestone 2 while Ads access is being arranged. Live connectors, causal experiments, and spending authority remain separate milestones.
+
+The following milestones describe remaining production work.
 
 ## Milestone 1 — connected observation, two equal tracks
 

@@ -165,3 +165,120 @@ test('connects measured targets to the next experiment and passes overview acces
   await expect(dialog.getByLabel('Experiment name', { exact: true })).toHaveValue(/confirmation/);
   await expect(dialog.getByLabel('Your hypothesis')).toHaveValue(/observed candidate/);
 });
+
+test('registers a prospective measurement wave with immutable reporting mappings and exports its setup', async ({
+  page,
+}) => {
+  const headers = { 'X-Orbit-Request': '1' };
+  const created = await page.request.post('/api/experiments', {
+    headers,
+    data: {
+      dataset: 'demo',
+      campaignId: 'demo-home',
+      name: 'Browser measurement workflow',
+      hypothesis: 'Focused reader terms may improve contribution relative to the baseline.',
+      variable: 'keyword',
+      seedTerms: ['outdoor essays'],
+      count: 12,
+      maxConcurrent: 2,
+      budgetCents: 30000,
+      provider: 'structured-planner',
+    },
+  });
+  expect(created.ok()).toBeTruthy();
+  const experiment = await created.json();
+  for (const v of experiment.variants.slice(0, 2))
+    await page.request.patch(`/api/experiments/${experiment.id}/variants/${v.id}`, {
+      headers,
+      data: { dataset: 'demo', state: 'shortlisted' },
+    });
+  await page.goto('/#experiments');
+  await page.getByRole('button', { name: /Browser measurement workflow/ }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Register measurement wave' }).click();
+  await dialog.getByLabel('Wave name', { exact: true }).fill('A registered reader test');
+  await dialog.getByLabel('Baseline reporting ID', { exact: true }).fill('browser-baseline');
+  await dialog.getByLabel('Baseline report label', { exact: true }).fill('Existing reader target');
+  for (let i = 1; i <= 2; i++)
+    await dialog
+      .getByLabel(`Challenger ${i} reporting ID`, { exact: true })
+      .fill(`browser-challenger-${i}`);
+  await dialog
+    .getByLabel('I checked that each reporting ID represents its assigned baseline or candidate.')
+    .check();
+  await dialog.getByRole('button', { name: 'Register test wave' }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Give every test a clear question.' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: /A registered reader test/ }).click();
+  await expect(dialog).toContainText('Plan registered; waiting for reporting days');
+  await expect(dialog.getByRole('button', { name: 'Save learning' })).toBeDisabled();
+  const downloaded = page.waitForEvent('download');
+  await dialog.getByRole('link', { name: 'Download setup sheet' }).click();
+  expect((await downloaded).suggestedFilename()).toMatch(/^orbit-wave-.+-setup.csv$/);
+  await page.reload();
+  await page.getByRole('button', { name: /A registered reader test/ }).click();
+  await dialog.getByRole('button', { name: 'Cancel local wave', exact: true }).click();
+  await dialog
+    .getByLabel('Why are you ending this local wave?')
+    .fill('This browser fixture was never launched on an advertising platform.');
+  await dialog.getByRole('button', { name: 'Cancel local plan' }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: /A registered reader test/ })).toContainText(
+    'Cancelled',
+  );
+});
+
+test('records a mature book finding and carries its evidence into a follow-up experiment', async ({
+  page,
+}) => {
+  await page.goto('/#waves');
+  await page.getByRole('button', { name: /Reader intent discovery/ }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('A candidate is ready for confirmation');
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await dialog
+    .getByLabel('What did we learn, and what should change next?')
+    .fill(
+      'Focused reader intent looks promising. Confirm it with controlled delivery and stable book economics.',
+    );
+  await dialog.getByRole('button', { name: 'Save learning' }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole('navigation').getByRole('button', { name: 'Learning library' }).click();
+  const card = page
+    .locator('.learning-card')
+    .filter({ has: page.getByRole('heading', { name: 'Reader intent discovery', exact: true }) });
+  await expect(card).toContainText('Focused reader intent looks promising.');
+  await card.getByRole('button', { name: 'Plan a follow-up' }).click();
+  await expect(dialog).toContainText('Building on: Reader intent discovery');
+  await expect(dialog.getByLabel('Relevant topics / reader interests')).not.toBeEmpty();
+  await dialog.getByLabel(/^Learning budget/).fill('300');
+  await dialog.getByRole('button', { name: 'Build experiment' }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole('navigation').getByRole('button', { name: 'Experiment lab' }).click();
+  await expect(
+    page.getByRole('button', { name: /Reader intent discovery · follow-up/ }),
+  ).toBeVisible();
+});
+
+test('test and learning pages remain accessible and fit a mobile viewport', async ({ page }) => {
+  await page.goto('/#waves');
+  await expect(page.getByRole('heading', { name: 'From hypothesis to evidence' })).toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.goto('/#learning');
+  await expect(page.getByRole('heading', { name: 'A memory for the next decision' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+});

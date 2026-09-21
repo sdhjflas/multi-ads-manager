@@ -98,6 +98,104 @@ export interface Experiment {
   variants: Variant[];
   createdAt: string;
   sourceTargetId?: string;
+  sourceLearningId?: string;
+}
+
+export interface WaveArm {
+  role: 'baseline' | 'challenger';
+  target: Target;
+  candidate: Variant | null;
+}
+
+export interface TestWave {
+  id: string;
+  dataset: Dataset;
+  campaignId: string;
+  experimentId: string;
+  name: string;
+  hypothesis: string;
+  registration: 'prospective' | 'retrospective';
+  mappingVerified: true;
+  startDate: string;
+  endDate: string;
+  budgetCents: number;
+  lossLimitCents: number;
+  minClicksPerArm: number;
+  minLiftCentsPer100Clicks: number;
+  arms: WaveArm[];
+  campaignSnapshot: Campaign;
+  planId: string;
+  status: 'measuring' | 'closed' | 'cancelled';
+  latestLearningId?: string;
+  createdAt: string;
+  closedAt?: string;
+}
+
+export type WaveOutcome =
+  | 'scheduled'
+  | 'collecting'
+  | 'repair'
+  | 'limit-reached'
+  | 'promising'
+  | 'baseline-leading'
+  | 'unprofitable'
+  | 'inconclusive';
+
+export interface ArmResult {
+  targetId: string;
+  label: string;
+  role: WaveArm['role'];
+  observed: Metrics;
+  mature: Metrics;
+  coveredDays: number;
+  expectedDays: number;
+  matureDays: number;
+  probabilityProfitable: number | null;
+  // Conditional on fixed observed CPC, refund rate, and snapshotted unit economics.
+  contributionPer100Clicks: { mean: number; lower: number; upper: number } | null;
+}
+
+export interface WaveEvaluation {
+  evidenceId: string;
+  dataId: string;
+  evaluatedAt: string;
+  matureThrough: string;
+  outcome: WaveOutcome;
+  title: string;
+  reason: string;
+  blockers: string[];
+  arms: ArmResult[];
+  spentCents: number;
+  matureLossCents: number;
+  remainingPlanCents: number;
+  promisingTargetId: string | null;
+  canRecord: boolean;
+}
+
+export interface WaveView extends TestWave {
+  evaluation: WaveEvaluation;
+}
+
+export interface Learning {
+  id: string;
+  dataset: Dataset;
+  campaignId: string;
+  experimentId: string;
+  waveId: string;
+  waveName: string;
+  entityName: string;
+  vertical: Vertical;
+  hypothesis: string;
+  notes: string;
+  result: WaveEvaluation;
+  promisingCandidate: Variant | null;
+  supersedesId?: string;
+  createdAt: string;
+}
+
+export interface LearningView extends Learning {
+  evidenceChanged: boolean;
+  superseded: boolean;
 }
 
 export interface Activity {
@@ -153,6 +251,8 @@ export interface Dashboard {
   activity: Activity[];
   reviews: Review[];
   targets: TargetView[];
+  waves: WaveView[];
+  learnings: LearningView[];
   summary: Metrics;
   previous: Metrics;
   comparisonComplete: boolean;

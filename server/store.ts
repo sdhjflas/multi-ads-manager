@@ -10,6 +10,8 @@ import type {
   Observation,
   Review,
   Target,
+  TestWave,
+  Learning,
 } from '../shared/types.js';
 import { AppError } from './validation.js';
 
@@ -43,7 +45,7 @@ export class Store {
         target_id TEXT NOT NULL REFERENCES targets(id), date TEXT NOT NULL,
         observed_at TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(target_id,date)
       );
-      PRAGMA user_version = 2;
+      PRAGMA user_version = 3;
     `);
   }
   transaction<T>(fn: () => T): T {
@@ -167,7 +169,10 @@ export class Store {
     if (!row) throw new AppError('Record not found in this workspace.', 404);
     return JSON.parse(row.body);
   }
-  putRecord(kind: 'experiment' | 'review' | 'activity', value: Experiment | Review | Activity) {
+  putRecord(
+    kind: 'experiment' | 'review' | 'activity' | 'wave' | 'learning',
+    value: Experiment | Review | Activity | TestWave | Learning,
+  ) {
     this.db
       .prepare(
         'INSERT INTO records(id,dataset,kind,created_at,body) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body',

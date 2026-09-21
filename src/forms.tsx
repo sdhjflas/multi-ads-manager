@@ -22,6 +22,7 @@ import type {
   Experiment,
   Vertical,
   TargetView,
+  LearningView,
 } from '../shared/types';
 import { Badge, ChannelMark, Empty } from './components';
 import { api, channelName, date, dollarInput, money, number, percent } from './lib';
@@ -268,23 +269,29 @@ export function ExperimentForm({
   onSaved,
   onCreateCampaign,
   seedTarget,
+  sourceLearning,
 }: {
   data: Dashboard;
   onSaved: () => void;
   onCreateCampaign: () => void;
   seedTarget?: TargetView;
+  sourceLearning?: LearningView;
 }) {
   const [campaignId, setCampaignId] = useState(
-    seedTarget?.campaignId || data.campaigns[0]?.id || '',
+    sourceLearning?.campaignId || seedTarget?.campaignId || data.campaigns[0]?.id || '',
   );
   const [variable, setVariable] = useState(
-    seedTarget
-      ? seedTarget.kind === 'creative'
-        ? 'hook'
-        : 'keyword'
-      : data.campaigns[0]?.vertical === 'books'
-        ? 'keyword'
-        : 'hook',
+    sourceLearning
+      ? sourceLearning.promisingCandidate?.variable ||
+          data.experiments.find((e) => e.id === sourceLearning.experimentId)?.variable ||
+          (sourceLearning.vertical === 'books' ? 'keyword' : 'hook')
+      : seedTarget
+        ? seedTarget.kind === 'creative'
+          ? 'hook'
+          : 'keyword'
+        : data.campaigns[0]?.vertical === 'books'
+          ? 'keyword'
+          : 'hook',
   );
   const [provider, setProvider] = useState('structured-planner');
   const [count, setCount] = useState(36),
@@ -328,6 +335,9 @@ export function ExperimentForm({
         budgetCents: dollarInput(f.get('budget')),
         provider,
         ...(seedTarget?.campaignId === campaignId ? { sourceTargetId: seedTarget.id } : {}),
+        ...(sourceLearning?.campaignId === campaignId
+          ? { sourceLearningId: sourceLearning.id }
+          : {}),
       });
       onSaved();
     } catch (e) {
@@ -338,6 +348,14 @@ export function ExperimentForm({
   }
   return (
     <form onSubmit={submit} className="form-stack">
+      {sourceLearning?.campaignId === campaignId && (
+        <div className="learning-source">
+          <strong>Building on: {sourceLearning.waveName}</strong>
+          {sourceLearning.result.title}. This new experiment keeps a link to the recorded evidence.
+          {provider === 'openai' &&
+            ' The saved finding and your notes will be included in the AI request.'}
+        </div>
+      )}
       <label>
         Campaign
         <select
@@ -362,7 +380,13 @@ export function ExperimentForm({
         Experiment name
         <input
           name="name"
-          defaultValue={seedTarget ? `${seedTarget.label.slice(0, 100)} · confirmation` : ''}
+          defaultValue={
+            sourceLearning
+              ? `${sourceLearning.waveName.slice(0, 100)} · follow-up`
+              : seedTarget
+                ? `${seedTarget.label.slice(0, 100)} · confirmation`
+                : ''
+          }
           placeholder="Give this test a memorable name"
           required
           maxLength={160}
@@ -373,9 +397,14 @@ export function ExperimentForm({
         <textarea
           name="hypothesis"
           defaultValue={
-            seedTarget
-              ? `The observed candidate “${seedTarget.label}” may acquire purchases within our contribution ceiling. Compare it with a stable control and verify mature outcomes.`
-              : ''
+            sourceLearning
+              ? `Following the recorded result “${sourceLearning.result.title}”, test a focused change with a stable baseline and verify mature contribution. Prior question: ${sourceLearning.hypothesis}`.slice(
+                  0,
+                  1200,
+                )
+              : seedTarget
+                ? `The observed candidate “${seedTarget.label}” may acquire purchases within our contribution ceiling. Compare it with a stable control and verify mature outcomes.`
+                : ''
           }
           required
           minLength={10}
@@ -428,7 +457,9 @@ export function ExperimentForm({
           : 'Product angles / themes'}
         <input
           name="seeds"
-          defaultValue={seedTarget?.label || ''}
+          defaultValue={
+            sourceLearning?.promisingCandidate?.label.slice(0, 100) || seedTarget?.label || ''
+          }
           required
           maxLength={2500}
           placeholder={
@@ -780,9 +811,11 @@ export function CampaignDetail({
 export function ExperimentDetail({
   experiment,
   onUpdated,
+  onRegister,
 }: {
   experiment: Experiment;
   onUpdated: (e: Experiment) => void;
+  onRegister: () => void;
 }) {
   const [search, setSearch] = useState(''),
     [page, setPage] = useState(0);
@@ -869,6 +902,10 @@ export function ExperimentDetail({
           Export
         </button>
       </div>
+      <button className="button primary setup-download" onClick={onRegister} disabled={!selected}>
+        <FlaskConical size={16} />
+        Register measurement wave
+      </button>
       <ErrorMessage error={error} />
       <div className="candidate-list">
         {matches.slice(page * 10, page * 10 + 10).map((v) => (
@@ -920,8 +957,9 @@ export function ExperimentDetail({
         {experiment.provider === 'openai'
           ? 'AI-generated hypotheses'
           : 'Template-generated hypotheses'}{' '}
-        · observational screening plan. Shortlisting does not launch an ad or reserve money. Confirm
-        a promising result in a controlled experiment before broader scaling.
+        · candidate library. Register a measurement wave to link the shortlist to reporting IDs and
+        a local planning reservation. Confirm a promising result in a controlled experiment before
+        broader scaling.
       </p>
     </div>
   );

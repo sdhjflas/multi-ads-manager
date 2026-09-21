@@ -155,7 +155,9 @@ These are **configurable design defaults to evaluate**, not statistical proof or
 
 The initial dashboard sums channel-attributed model estimates with an explicit overlap caveat. A future business-profit dashboard must use the deduplicated business ledger instead.
 
-The implemented target explorer applies these observational gates to imported keyword, product-target, and creative-cell facts. It requires a healthy parent campaign and blocks interpretation if stored target totals exceed matching parent/day totals or lack a parent row. Target metrics are never added to campaign portfolio metrics. Partial target coverage remains possible and does not justify portfolio-wide attribution claims. A target can seed a new draft with its source ID retained; this is not automatic linkage to a randomized experiment arm.
+The implemented target explorer applies these observational gates to imported keyword, product-target, and creative-cell facts. It requires a healthy parent campaign and blocks interpretation if stored target totals exceed matching parent/day totals or lack a parent row. Target metrics are never added to campaign portfolio metrics. Partial target coverage remains possible and does not justify portfolio-wide attribution claims.
+
+Version 0.2 adds operator-declared links from shortlisted candidates to measured IDs through immutable test waves. A fixed window, copied economics, baseline, maturity checks, conditional comparison bands, and local reservations govern each wave. Recorded findings retain evidence snapshots and revisions and can seed another draft with provenance. This is observational measurement. [The workflow and model](EXPERIMENTS.md) describes the implemented boundaries.
 
 ## 6. Production execution and authority
 

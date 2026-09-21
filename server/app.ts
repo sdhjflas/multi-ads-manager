@@ -4,12 +4,21 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import type { Activity, Campaign, Dashboard, Experiment, Review } from '../shared/types.js';
+import type {
+  Activity,
+  Campaign,
+  Dashboard,
+  Experiment,
+  Review,
+  TestWave,
+} from '../shared/types.js';
 import { Store } from './store.js';
 import { aiConfig, generateIdeas } from './ai.js';
 import { campaignView, dayAt, decide, metrics, sumMetrics } from './engine.js';
 import { importTemplate, parseImport } from './importer.js';
 import { createExperiment, planVariants } from './planner.js';
+import { getLearningViews, getWaveViews, holdForOpenWave } from './waves.js';
+import { waveRoutes } from './wave-routes.js';
 import {
   AppError,
   campaignInput,
@@ -78,15 +87,21 @@ export function createApp(store: Store) {
       .campaigns(dataset)
       .filter((c) => vertical === 'all' || c.vertical === vertical);
     const items = campaigns.map((c) => ({ c, rows: store.observations(c.id) }));
-    const views = items.map(({ c, rows }) => campaignView(c, rows, days, now));
     const ids = new Set(campaigns.map((c) => c.id));
     const config = aiConfig();
+    const waves = getWaveViews(store, dataset).filter((w) => ids.has(w.campaignId));
+    const views = items.map(({ c, rows }) => {
+      const view = campaignView(c, rows, days, now);
+      return { ...view, decision: holdForOpenWave(view.decision, waves, c.id) };
+    });
     const result: Dashboard = {
       dataset,
       generatedAt: generatedAt.toISOString(),
       reportingAt: now.toISOString(),
       days,
       campaigns: views,
+      waves,
+      learnings: getLearningViews(store, dataset, waves).filter((l) => ids.has(l.campaignId)),
       experiments: store
         .records<Experiment>(dataset, 'experiment')
         .filter((e) => ids.has(e.campaignId)),
@@ -95,7 +110,8 @@ export function createApp(store: Store) {
       targets: items.flatMap(({ c, rows }) => {
         const entries = store
           .targets(c.id)
-          .map((target) => ({ target, rows: store.targetRows(target.id) }));
+          .map((target) => ({ target, rows: store.targetRows(target.id) }))
+          .filter((entry) => entry.rows.length > 0);
         const exceeds = targetsExceedCampaign(entries, rows);
         return entries.map((entry) =>
           targetView(entry.target, c, entry.rows, rows, days, exceeds, now),
@@ -269,6 +285,19 @@ export function createApp(store: Store) {
     const input = experimentInput.parse(req.body);
     const campaign = store.campaign(input.dataset, input.campaignId);
     // Validate experiment eligibility before making any paid request.
+    const learning = input.sourceLearningId
+      ? getLearningViews(store, input.dataset).find((l) => l.id === input.sourceLearningId)
+      : undefined;
+    if (
+      input.sourceLearningId &&
+      (!learning ||
+        learning.campaignId !== campaign.id ||
+        learning.evidenceChanged ||
+        learning.superseded)
+    )
+      throw new AppError(
+        'Use a current recorded learning from this campaign. Revisit changed evidence before starting a follow-up.',
+      );
     if (
       input.sourceTargetId &&
       !store.targets(campaign.id).some((t) => t.id === input.sourceTargetId)
@@ -286,7 +315,23 @@ export function createApp(store: Store) {
       store.reserveAi(config.dailyLimit);
     }
     const variants =
-      input.provider === 'openai' ? await generateIdeas(input, campaign) : planVariants(input);
+      input.provider === 'openai'
+        ? await generateIdeas(
+            input,
+            campaign,
+            fetch,
+            learning
+              ? {
+                  id: learning.id,
+                  hypothesis: learning.hypothesis,
+                  outcome: learning.result.outcome,
+                  finding: learning.result.reason,
+                  notes: learning.notes,
+                  candidate: learning.promisingCandidate?.value ?? null,
+                }
+              : undefined,
+          )
+        : planVariants(input);
     const experiment = createExperiment(input, campaign, variants);
     store.transaction(() => {
       store.putRecord('experiment', experiment);
@@ -333,9 +378,11 @@ export function createApp(store: Store) {
   app.post('/api/analysis', (req, res) => {
     const { dataset } = z.object({ dataset: datasetSchema }).strict().parse(req.body);
     const now = store.reportingTime(dataset);
-    const decisions = store
-      .campaigns(dataset)
-      .map((c) => ({ campaignId: c.id, ...decide(c, store.observations(c.id), now) }));
+    const waves = store.records<TestWave>(dataset, 'wave', 200);
+    const decisions = store.campaigns(dataset).map((c) => ({
+      campaignId: c.id,
+      ...holdForOpenWave(decide(c, store.observations(c.id), now), waves, c.id),
+    }));
     store.activity(
       dataset,
       'system',
@@ -348,10 +395,10 @@ export function createApp(store: Store) {
   app.post('/api/reviews', (req, res) => {
     const input = reviewInput.parse(req.body);
     const campaign = store.campaign(input.dataset, input.campaignId);
-    const decision = decide(
-      campaign,
-      store.observations(campaign.id),
-      store.reportingTime(input.dataset),
+    const decision = holdForOpenWave(
+      decide(campaign, store.observations(campaign.id), store.reportingTime(input.dataset)),
+      store.records<TestWave>(input.dataset, 'wave', 200),
+      campaign.id,
     );
     if (input.evidenceId !== decision.evidenceId)
       throw new AppError(
@@ -372,9 +419,12 @@ export function createApp(store: Store) {
     res.json({ review, platformMutation: false });
   });
 
+  waveRoutes(app, store);
+
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);
     const now = store.reportingTime(dataset);
+    const waves = store.records<TestWave>(dataset, 'wave', 200);
     const escape = (v: string | number | null) =>
       `"${String(v ?? '')
         .replace(/^[=+\-@\t\r]/, "'$&")
@@ -391,7 +441,7 @@ export function createApp(store: Store) {
           view.metrics.spendCents,
           view.metrics.salesCents,
           view.metrics.contributionCents,
-          view.decision.kind,
+          holdForOpenWave(view.decision, waves, c.id).kind,
           dataset,
         ];
       });

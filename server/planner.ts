@@ -93,5 +93,6 @@ export function createExperiment(
     variants,
     createdAt: now.toISOString(),
     ...(input.sourceTargetId ? { sourceTargetId: input.sourceTargetId } : {}),
+    ...(input.sourceLearningId ? { sourceLearningId: input.sourceLearningId } : {}),
   };
 }
