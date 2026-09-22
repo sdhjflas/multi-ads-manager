@@ -19,14 +19,21 @@ seedDemo(store);
 seedWaves(store);
 await seedBrain(store);
 // Background cycle for connected workspace accounts that opted into automatic sync.
-const interval = Number(process.env.BRAIN_SYNC_INTERVAL_MINUTES ?? '60');
-let cycling = false;
-async function cycle() {
-  if (cycling) return;
+const interval = Number(process.env.BRAIN_SYNC_INTERVAL_MINUTES ?? '1440');
+let cycling = false,
+  closing = false;
+async function cycle(pendingOnly = false) {
+  if (cycling || closing) return;
   cycling = true;
   try {
     for (const account of store.accounts('workspace')) {
-      if (!account.policy.autoSync || account.policy.killSwitch) continue;
+      if (closing) break;
+      if (
+        !account.policy.autoSync ||
+        account.policy.killSwitch ||
+        (pendingOnly && !['pending', 'throttled'].includes(account.health.status))
+      )
+        continue;
       try {
         await runBrain(store, account, connectorFor(store, account));
       } catch (error) {
@@ -38,14 +45,21 @@ async function cycle() {
   }
 }
 const timer =
-  Number.isFinite(interval) && interval > 0 ? setInterval(cycle, interval * 60_000) : null;
+  Number.isFinite(interval) && interval > 0 ? setInterval(() => cycle(), interval * 60_000) : null;
 timer?.unref();
+const reportTimer =
+  Number.isFinite(interval) && interval > 0 ? setInterval(() => cycle(true), 60000) : null;
+reportTimer?.unref();
 const server = createApp(store).listen(port, host, () =>
   console.log(`Orbit API ready at http://${host}:${port} · local operator mode`),
 );
 function shutdown() {
+  if (closing) return;
+  closing = true;
+  if (reportTimer) clearInterval(reportTimer);
   if (timer) clearInterval(timer);
-  server.close(() => {
+  server.close(async () => {
+    while (cycling) await new Promise((resolve) => setTimeout(resolve, 100));
     store.close();
     process.exit(0);
   });

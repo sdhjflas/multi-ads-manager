@@ -189,6 +189,8 @@ describe('workspace and action boundaries', () => {
     await request(app).get('/api/dashboard').set('Host', 'attacker.example').expect(403);
     const health = await request(app).get('/api/health').expect(200);
     expect(health.body.platformWritesEnabled).toBe(false);
+    expect(health.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(health.headers['permissions-policy']).toContain('payment=()');
   });
   it('persists draft generation and enforces the wave cap on the server', async () => {
     const input = {

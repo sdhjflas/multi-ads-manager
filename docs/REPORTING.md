@@ -1,6 +1,6 @@
 # Reporting hub
 
-The Reporting hub provides a shared ingestion workflow for product ads and Amazon book ads. It works with saved CSV sources today. It does not establish an Ads API connection or collect reports automatically.
+The Reporting hub provides the reviewed CSV ingestion workflow for product ads and Amazon book ads. Amazon Ads API collection is a separate path in **The brain**; a campaign cannot mix the two reporting identities.
 
 Open **Reporting hub → Your workspace**. Create local campaigns with verified reporting definitions and unit economics, then register a source, stage a report, inspect its differences, and apply the batch.
 
@@ -72,12 +72,12 @@ Corrections refresh current economics and test evaluations. Frozen findings rema
 
 ## Storage and boundaries
 
-- Workspace limits: 200 campaigns, 100 sources, 500 batches; 200 mappings per source.
+- Workspace limits: 2,000 campaigns, 100 sources, 500 batches; 200 mappings per source.
 - Batch limits: 1 MB CSV, 10,000 rows total, 500 saved target definitions per campaign, last two years of completed dates. The campaign parser also caps each campaign at 2,000 daily rows.
 - JSON body limit: 2 MB. Only aggregates are accepted; do not include personal or order-level records.
-- SQLite schema version 4 adds source contracts, bindings, normalized payloads, receipts, and observation revisions. Existing v0.2 campaign/test data remains in place.
+- SQLite schema version 6 retains source contracts, bindings, normalized payloads, receipts, and observation revisions alongside the brain, durable Amazon reports, and book portfolio tables.
 - Raw CSV is not retained. SHA-256 content and contract hashes identify receipts. These are local integrity references, not a signed or tamper-proof archive.
 - Single-campaign importers remain available. Batch previews detect their observation changes and require review. Single imports have activity entries but do not create batch revision receipts.
-- Everything remains local advisory work. OAuth, scheduled collection/backfill, native Meta/TikTok conversion, search-term adapters, remote jobs, client authorization, and live ad mutations are future integrations.
+- CSV sources remain local advisory work. The Amazon Ads connector has scheduled local collection and supervised mutations, but its OAuth consent flow, production client authorization, and hosted job infrastructure remain future work. Meta/TikTok connections remain future integrations.
 
 The API starts at `/api/reporting`, with `/sources` and `/batches` below it. Source templates and batch refresh, commit, discard, and paginated revisions use their respective IDs. Reads and writes are dataset-scoped, creation accepts only `workspace`, and mutations require the existing same-origin local request header. This supports the local browser workflow; it is not hosted authentication.

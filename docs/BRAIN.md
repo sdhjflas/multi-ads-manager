@@ -10,7 +10,7 @@ Open **The brain** in the sidebar. The demo workspace ships with a simulated Ama
 sync → evaluate → (AI relevance review) → propose → authorize → reserve → revalidate → send → read back
 ```
 
-1. **Sync** pulls campaigns, ad groups, keywords, and negative keywords, then the daily campaign, keyword, and search-term reports for the trailing window. The first sync covers 56 days; later syncs re-pull the attribution window plus two days so late conversions replace provisional values. Missing keyword or term days inside the window become explicit zero rows only where the parent campaign reported that day. Health records `ok`, `partial`, `stale`, `throttled`, or `error`, with coverage counts and a watermark date.
+1. **Sync** verifies the Amazon profile, then pulls campaigns, ad groups, keywords, and negative keywords plus daily campaign, keyword, search-term, and advertised-product reports. Amazon requests cover at most 31 days and durable jobs survive restarts. Every generation refreshes at least 56 completed account-calendar days for delayed conversion restatements. Live reports do not invent zero rows. Health records `ok`, `partial`, `pending`, `throttled`, or `error`; only a complete `ok` run advances the watermark or permits evaluation.
 2. **Evaluate** applies the same posterior screen used for campaigns (`Beta(1 + purchases, 19 + non-converting clicks)` against `observed CPC / affordable CPC`) to every keyword cell and search term. Recent cohorts inside the attribution window and today are excluded.
 3. **Propose** turns evidence into one of seven action classes, each with an expected prior platform state, a maximum additional daily commitment, an evidence digest, an idempotency key, and a 72-hour expiry.
 4. **Authorize** by an operator, or by a bounded policy for allowed classes that do not need review.
@@ -39,7 +39,7 @@ Thresholds are policy fields and can be changed per account. All classes require
 | `supervised` | An operator authorizes a proposal, then presses Execute; the exact reviewed change is sent        |
 | `bounded`    | Each run authorizes and executes the allowed classes that do not need review, within the envelope |
 
-Envelope fields: maximum bid, bid step, maximum daily budget, budget step, daily commitment envelope (sum of commitments reserved or applied that UTC day), cooldown hours per target, actions per run, and maximum evidence age. Saving the policy creates a new version; authorizations record the version they were granted under.
+Envelope fields: maximum bid, bid step, maximum daily budget, budget step, daily commitment envelope (sum of commitments reserved or applied that day), cooldown hours per target, actions per run, and maximum evidence age. Saving a changed policy creates a new version and cancels proposed or authorized work from the previous version. Execution rechecks the current version before and after reading platform state.
 
 The **kill switch** cancels every authorized or reserved proposal and blocks execution until released. It cannot recall a request the platform has already accepted, and delayed reporting means no software monitor can promise zero overshoot.
 
@@ -59,26 +59,26 @@ The scorecard shows, per campaign and for the selected period: spend, attributed
 
 ## Connecting a real account
 
-1. Obtain Amazon Ads API access and a Login with Amazon application; authorize the advertiser and keep the refresh token.
+1. Confirm the credentials are approved **Amazon Ads API** access, not only SP-API or Advantage access. Complete the Login with Amazon advertiser authorization and keep the refresh token in the server secret environment.
 2. Set `AMAZON_ADS_CLIENT_ID`, `AMAZON_ADS_CLIENT_SECRET`, `AMAZON_ADS_REFRESH_TOKEN`, and `AMAZON_ADS_REGION` in the server `.env`. Leave `AMAZON_ADS_WRITES_ENABLED=false`.
-3. Select **Your workspace**, open **The brain**, choose **Connect account → Amazon Ads profile**, and enter the profile ID. The account starts in `observe` mode.
+3. Select **Your workspace**, open **The brain**, choose **Connect account → Amazon Ads profile**, then discover and select the profile. Orbit obtains marketplace, currency, account type, and timezone from Amazon. The account starts in `observe` mode with AI review off.
 4. Press **Sync now**, then **Link campaign** for each local campaign (its click window must match the account's attribution window). Sync again to collect performance.
 5. Review proposals in `recommend` mode for at least one full attribution window. Compare them with your console decisions.
 6. Enable writes on the server, switch to `supervised`, and execute individual changes while watching read-back. Only then consider a narrow `bounded` policy (negatives and bid reductions first).
 
-Report column names follow Amazon's documented v3 report types (`spCampaigns`, `spTargeting`, `spSearchTerm`) and the request shapes follow Amazon's published Postman collection. Confirm them against the account's approved API version during onboarding; the adapter fails closed with a classified error if the response does not match.
+The request and response contracts follow Amazon's documented v3 report types and published Postman collection. The adapter validates dates, grain, columns, filters, entity states, pagination, IDs, money, and row identity before accepting data. See [the Amazon API operating contract](AMAZON_API.md).
 
 ## Background cycle
 
-`BRAIN_SYNC_INTERVAL_MINUTES` (default 60) runs the full cycle for every workspace account with **automatic sync** enabled and the kill switch off. Set it to `0` to disable. The demo account is evaluated once at startup and never calls an AI provider during seeding.
+`BRAIN_SYNC_INTERVAL_MINUTES` (default 1440, once daily) runs the full cycle for every workspace account with **automatic sync** enabled and the kill switch off. Pending Amazon report jobs are checked every minute without repeating the account's entity listing and without overlapping account runs. Set the interval to `0` to disable both workers. Shutdown waits for an active cycle before closing the database. The demo account is evaluated once at startup and never calls an AI provider during seeding.
 
 ## Storage
 
-SQLite schema version 5 adds `accounts`, `account_links`, `platform_snapshots`, `sandbox_state`, `search_terms`, `search_term_observations`, `proposals` (unique idempotency key), `execution_attempts`, `sync_runs`, `ledger_entries`, and `ai_reviews`. Keyword performance reuses the existing target tables, so the Target explorer and test waves see synchronized keywords as ordinary measured cells.
+SQLite schema version 6 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, and advertised-product rows. Keyword performance reuses the target tables, so the Target explorer and test waves see synchronized keywords as measured cells.
 
 ## Boundaries
 
 - Proposals are observational screening signals. Applying one does not establish causal lift; confirm important changes in a registered test wave.
 - The daily commitment envelope bounds additional exposure from Orbit's own changes. It is not a cash lock: Amazon can spend above an average daily budget, and pauses are not instantaneous.
-- Only Sponsored Products keyword campaigns are supported. Product targets, automatic targeting expressions, placements, and Sponsored Brands are read but not acted on.
+- Only Sponsored Products keyword campaigns are acted on. Product targets, automatic targeting expressions, placements, and Sponsored Brands are not part of this execution adapter.
 - One set of Amazon credentials per server. Multi-tenant authorization, encrypted credential storage, and hosted deployment remain future work.

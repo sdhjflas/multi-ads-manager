@@ -14,7 +14,7 @@ import { Store } from '../store.js';
 import { AppError, datasetSchema, dateOnly } from '../validation.js';
 import { campaignView, dayAt, unitContribution } from '../engine.js';
 import { holdForOpenWave } from '../waves.js';
-import { analyzeAccount, isOpen } from './policy.js';
+import { analyzeAccount, OPEN_STATUSES } from './policy.js';
 import { accountNow } from './accounts.js';
 import { aiStatus } from '../ai/provider.js';
 import { amazonConfigured } from '../connectors/amazon.js';
@@ -32,17 +32,24 @@ export function brainView(
   const clock = accountNow(store, dataset, now);
   const accounts = store.accounts(dataset);
   const links = store.links().filter((l) => accounts.some((a) => a.id === l.accountId));
+  const linksByCampaign = new Map(links.map((link) => [link.campaignId, link]));
   const platform: Record<string, PlatformSnapshot> = {};
   for (const account of accounts) {
     const snapshot = store.snapshot(account.id);
     if (snapshot) platform[account.id] = snapshot;
   }
   const analyses = accounts.flatMap((account) => analyzeAccount(store, account, clock, days));
-  const proposals = store.proposals(dataset, 500);
+  const analysesByCampaign = new Map(analyses.map((analysis) => [analysis.campaign.id, analysis]));
+  const open = accounts.flatMap((account) => store.accountProposals(account.id, OPEN_STATUSES));
+  const openIds = new Set(open.map((proposal) => proposal.id));
+  const proposals = [
+    ...open,
+    ...store.proposals(dataset, 500).filter((proposal) => !openIds.has(proposal.id)),
+  ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const waves = store.records<TestWave>(dataset, 'wave', 200);
   const ai = aiStatus();
   const scorecards: Scorecard[] = store.campaigns(dataset).map((campaign) => {
-    const link = links.find((l) => l.campaignId === campaign.id);
+    const link = linksByCampaign.get(campaign.id);
     const snapshot = link ? platform[link.accountId] : undefined;
     const platformCampaign = snapshot?.campaigns.find(
       (c) => c.externalId === link?.externalCampaignId,
@@ -52,7 +59,11 @@ export function brainView(
     const unit = unitContribution(campaign);
     const ledgerRows = store
       .ledger(campaign.id)
-      .filter((r) => r.date >= dayAt(clock, -days) && r.date < dayAt(clock));
+      .filter(
+        (r) =>
+          r.date >= dayAt(clock, -days, campaign.reportingTimezone) &&
+          r.date < dayAt(clock, 0, campaign.reportingTimezone),
+      );
     const ledger = ledgerRows.length
       ? {
           units: ledgerRows.reduce((s, r) => s + r.units, 0),
@@ -61,7 +72,7 @@ export function brainView(
           days: ledgerRows.length,
         }
       : null;
-    const analysis = analyses.find((a) => a.campaign.id === campaign.id);
+    const analysis = analysesByCampaign.get(campaign.id);
     return {
       campaignId: campaign.id,
       campaignName: campaign.name,
@@ -88,8 +99,7 @@ export function brainView(
             view.metrics.spendCents
           : null,
       decision: holdForOpenWave(view.decision, waves, campaign.id),
-      openProposals: proposals.filter((p) => p.campaignId === campaign.id && isOpen(p.status))
-        .length,
+      openProposals: store.proposalCount(dataset, campaign.id, OPEN_STATUSES),
     };
   });
   return {
@@ -101,7 +111,10 @@ export function brainView(
     platform,
     scorecards,
     proposals,
-    searchTerms: analyses.flatMap((a) => a.terms).slice(0, 500),
+    searchTerms: analyses
+      .flatMap((a) => a.terms)
+      .sort((a, b) => b.metrics.spendCents - a.metrics.spendCents)
+      .slice(0, 500),
     executions: store.executions(dataset, 200),
     syncRuns: store.syncRuns(dataset, 50),
     ai: {
@@ -153,7 +166,7 @@ export function parseLedger(campaign: Campaign, csv: string, now = new Date()): 
   const seen = new Set<string>();
   return rows.map((r, i) => {
     const label = `Row ${i + 2}`;
-    if (!dateOnly(r.date) || r.date >= dayAt(now))
+    if (!dateOnly(r.date) || r.date >= dayAt(now, 0, campaign.reportingTimezone))
       throw new AppError(`${label}: use a completed date in YYYY-MM-DD format.`);
     if (seen.has(r.date)) throw new AppError(`${label}: duplicate date.`);
     seen.add(r.date);

@@ -14,6 +14,7 @@ import type {
   Observation,
   PlatformSnapshot,
   Proposal,
+  ProposalStatus,
   Review,
   SearchTerm,
   SyncRun,
@@ -99,6 +100,8 @@ export class Store {
         created_at TEXT NOT NULL, body TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS proposals_scope ON proposals(dataset,status,created_at);
+      CREATE INDEX IF NOT EXISTS proposals_account_status ON proposals(account_id,status,created_at);
+      CREATE INDEX IF NOT EXISTS proposals_campaign_status ON proposals(dataset,campaign_id,status);
       CREATE TABLE IF NOT EXISTS execution_attempts (
         id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL REFERENCES proposals(id),
         dataset TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL
@@ -115,7 +118,27 @@ export class Store {
         key TEXT PRIMARY KEY, dataset TEXT NOT NULL, kind TEXT NOT NULL,
         created_at TEXT NOT NULL, body TEXT NOT NULL
       );
-      PRAGMA user_version = 5;
+      CREATE TABLE IF NOT EXISTS amazon_report_jobs (
+        key TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), body TEXT NOT NULL, payload TEXT
+      );
+      CREATE INDEX IF NOT EXISTS amazon_report_account ON amazon_report_jobs(account_id);
+      CREATE TABLE IF NOT EXISTS amazon_sync_plans (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id), body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS book_catalog (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id),
+        asin TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(account_id,asin)
+      );
+      CREATE INDEX IF NOT EXISTS book_catalog_scope ON book_catalog(dataset,account_id,asin);
+      CREATE TABLE IF NOT EXISTS book_campaigns (
+        campaign_id TEXT PRIMARY KEY REFERENCES campaigns(id), book_id TEXT NOT NULL REFERENCES book_catalog(id)
+      );
+      CREATE INDEX IF NOT EXISTS book_campaigns_book ON book_campaigns(book_id);
+      CREATE TABLE IF NOT EXISTS advertised_product_rows (
+        account_id TEXT NOT NULL REFERENCES accounts(id), campaign_id TEXT NOT NULL, ad_id TEXT NOT NULL,
+        date TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(account_id,campaign_id,ad_id,date)
+      );
+      PRAGMA user_version = 6;
     `);
   }
   transaction<T>(fn: () => T): T {
@@ -196,6 +219,20 @@ export class Store {
         .prepare('SELECT body FROM target_observations WHERE target_id=? ORDER BY date')
         .all(targetId) as { body: string }[]
     ).map((r) => JSON.parse(r.body));
+  }
+  targetRowsForCampaign(campaignId: string): Map<string, Observation[]> {
+    const grouped = new Map<string, Observation[]>();
+    const rows = this.db
+      .prepare(
+        'SELECT o.target_id,o.body FROM target_observations o JOIN targets t ON t.id=o.target_id WHERE t.campaign_id=? ORDER BY o.target_id,o.date',
+      )
+      .all(campaignId) as { target_id: string; body: string }[];
+    for (const row of rows) {
+      const list = grouped.get(row.target_id) || [];
+      list.push(JSON.parse(row.body));
+      grouped.set(row.target_id, list);
+    }
+    return grouped;
   }
   importTargets(entries: { target: Target; rows: Observation[] }[]) {
     const get = this.db.prepare('SELECT body FROM targets WHERE id=?');
@@ -373,6 +410,20 @@ export class Store {
         .all(termId) as { body: string }[]
     ).map((r) => JSON.parse(r.body));
   }
+  searchTermRowsForCampaign(campaignId: string): Map<string, Observation[]> {
+    const grouped = new Map<string, Observation[]>();
+    const rows = this.db
+      .prepare(
+        'SELECT o.term_id,o.body FROM search_term_observations o JOIN search_terms t ON t.id=o.term_id WHERE t.campaign_id=? ORDER BY o.term_id,o.date',
+      )
+      .all(campaignId) as { term_id: string; body: string }[];
+    for (const row of rows) {
+      const list = grouped.get(row.term_id) || [];
+      list.push(JSON.parse(row.body));
+      grouped.set(row.term_id, list);
+    }
+    return grouped;
+  }
   importSearchTerms(entries: { term: SearchTerm; rows: Observation[] }[]) {
     const put = this.db.prepare(
       'INSERT INTO search_terms(id,campaign_id,body) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING',
@@ -387,7 +438,8 @@ export class Store {
       put.run(term.id, term.campaignId, JSON.stringify(term));
       for (const row of rows) {
         const previous = prior.get(term.id, row.date) as { observed_at: string } | undefined;
-        if (previous && Date.parse(previous.observed_at) > Date.parse(row.observedAt)) continue;
+        if (previous && Date.parse(previous.observed_at) > Date.parse(row.observedAt))
+          throw new AppError('An older search-term report cannot replace newer observations.');
         rowPut.run(term.id, row.date, row.observedAt, JSON.stringify(row));
       }
     }
@@ -398,6 +450,29 @@ export class Store {
         .prepare('SELECT body FROM proposals WHERE dataset=? ORDER BY created_at DESC LIMIT ?')
         .all(dataset, limit) as { body: string }[]
     ).map((r) => JSON.parse(r.body));
+  }
+  /** Operational scans use indexed status filters and are never truncated by a UI limit. */
+  accountProposals(accountId: string, statuses: readonly ProposalStatus[]): Proposal[] {
+    if (!statuses.length) return [];
+    const placeholders = statuses.map(() => '?').join(',');
+    return (
+      this.db
+        .prepare(
+          `SELECT body FROM proposals WHERE account_id=? AND status IN (${placeholders}) ORDER BY created_at DESC`,
+        )
+        .all(accountId, ...statuses) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  proposalCount(dataset: Dataset, campaignId: string, statuses: readonly ProposalStatus[]): number {
+    if (!statuses.length) return 0;
+    const placeholders = statuses.map(() => '?').join(',');
+    return (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM proposals WHERE dataset=? AND campaign_id=? AND status IN (${placeholders})`,
+        )
+        .get(dataset, campaignId, ...statuses) as { count: number }
+    ).count;
   }
   proposal(dataset: Dataset, id: string): Proposal {
     const row = this.db

@@ -1,6 +1,7 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { AmazonAdsConnector, amazonConfigFromEnv } from '../server/connectors/amazon.js';
+import { reportConfiguration } from '../server/connectors/amazon-reports.js';
 import { ConnectorError } from '../server/connectors/connector.js';
 
 const config = {
@@ -22,7 +23,7 @@ function connector(handler: (url: string, init: RequestInit) => Response | Promi
   const fetcher = vi
     .fn<typeof fetch>()
     .mockImplementation((url, init) => Promise.resolve(handler(String(url), init || {})));
-  let clock = 0;
+  let clock = Date.parse('2026-09-22T12:00:00Z');
   const c = new AmazonAdsConnector(
     config,
     fetcher,
@@ -31,7 +32,13 @@ function connector(handler: (url: string, init: RequestInit) => Response | Promi
       clock += 20_000;
     },
   );
-  return { c, fetcher };
+  return {
+    c,
+    fetcher,
+    advance: (ms: number) => {
+      clock += ms;
+    },
+  };
 }
 
 describe('Amazon Ads adapter', () => {
@@ -126,7 +133,7 @@ describe('Amazon Ads adapter', () => {
         sales14d: 19.99,
       },
     ];
-    const { c, fetcher } = connector((url, init) => {
+    const { c, fetcher, advance } = connector((url, init) => {
       if (url.endsWith('/auth/o2/token')) return token();
       if (url.endsWith('/reporting/reports') && init.method === 'POST') {
         const body = JSON.parse(String(init.body));
@@ -139,14 +146,28 @@ describe('Amazon Ads adapter', () => {
       }
       if (url.endsWith('/reporting/reports/r1')) {
         polls += 1;
-        return polls < 2
-          ? json({ reportId: 'r1', status: 'PROCESSING', url: null })
-          : json({ reportId: 'r1', status: 'COMPLETED', url: 'https://files.example/r1.gz' });
+        return json({
+          reportId: 'r1',
+          startDate: '2026-09-01',
+          endDate: '2026-09-01',
+          configuration: reportConfiguration('searchTerm', 14),
+          status: polls < 2 ? 'PROCESSING' : 'COMPLETED',
+          url: polls < 2 ? null : 'https://reports.s3.amazonaws.com/r1.gz',
+          generatedAt: '2026-09-22T12:00:00Z',
+        });
       }
-      if (url === 'https://files.example/r1.gz')
+      if (url === 'https://reports.s3.amazonaws.com/r1.gz')
         return new Response(gzipSync(Buffer.from(JSON.stringify(rows))), { status: 200 });
       return json({}, 404);
     });
+    await expect(c.report('searchTerm', '2026-09-01', '2026-09-01', 14)).rejects.toMatchObject({
+      kind: 'pending',
+    });
+    advance(60000);
+    await expect(c.report('searchTerm', '2026-09-01', '2026-09-01', 14)).rejects.toMatchObject({
+      kind: 'pending',
+    });
+    advance(120000);
     const report = await c.report('searchTerm', '2026-09-01', '2026-09-01', 14);
     expect(report).toEqual([
       {
@@ -162,6 +183,7 @@ describe('Amazon Ads adapter', () => {
         costCents: 321,
         purchases: 1,
         salesCents: 1999,
+        observedAt: '2026-09-22T12:00:00.000Z',
       },
     ]);
     expect(fetcher).toHaveBeenCalled();
@@ -261,5 +283,39 @@ describe('Amazon Ads adapter', () => {
     await expect(
       readOnly.updateCampaigns([{ externalId: '9', dailyBudgetCents: 1500 }]),
     ).rejects.toBeInstanceOf(ConnectorError);
+  });
+  it('treats incomplete or malformed write acknowledgements as ambiguous', async () => {
+    const responses = [
+      { keywords: { success: [{ index: 0 }], error: [] } },
+      { keywords: { success: [{ index: 0, keywordId: '1' }], error: [] } },
+      {
+        keywords: {
+          success: [
+            { index: 0, keywordId: '1' },
+            { index: 0, keywordId: '2' },
+          ],
+          error: [],
+        },
+      },
+    ];
+    const { c } = connector((url) => {
+      if (url.endsWith('/auth/o2/token')) return token();
+      return json(responses.shift());
+    });
+    await expect(c.updateKeywords([{ externalId: '1', bidCents: 40 }])).rejects.toMatchObject({
+      kind: 'ambiguous',
+    });
+    await expect(
+      c.updateKeywords([
+        { externalId: '1', bidCents: 40 },
+        { externalId: '2', bidCents: 40 },
+      ]),
+    ).rejects.toMatchObject({ kind: 'ambiguous' });
+    await expect(
+      c.updateKeywords([
+        { externalId: '1', bidCents: 40 },
+        { externalId: '2', bidCents: 40 },
+      ]),
+    ).rejects.toMatchObject({ kind: 'ambiguous' });
   });
 });

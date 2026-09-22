@@ -23,6 +23,8 @@ import { brainScope, brainView, ledgerHeaders, ledgerInput, parseLedger } from '
 import { analyzeAccount } from './policy.js';
 import { aiProvider, aiStatus } from '../ai/provider.js';
 import { explainProposals, reviewSearchTerms } from '../ai/tasks.js';
+import { AmazonAdsConnector, amazonConfigFromEnv } from '../connectors/amazon.js';
+import { reportJobs, resetReportJob } from './report-jobs.js';
 
 const scoped = z.object({ dataset: datasetSchema }).strict();
 
@@ -32,9 +34,52 @@ export function brainRoutes(app: Express, store: Store) {
     res.json(brainView(store, dataset, Number(days)));
   });
 
-  app.post('/api/brain/accounts', (req, res) => {
+  app.post('/api/brain/amazon/profiles', async (req, res) => {
+    z.object({ dataset: z.literal('workspace') })
+      .strict()
+      .parse(req.body);
+    const config = amazonConfigFromEnv('');
+    if (!config)
+      throw new AppError('Configure approved Amazon Ads API credentials on the server first.', 503);
+    res.json({
+      region: config.region,
+      profiles: await new AmazonAdsConnector(config).listProfiles(),
+    });
+  });
+
+  app.post('/api/brain/accounts', async (req, res) => {
     const input = accountInput.parse(req.body);
-    res.status(201).json(store.transaction(() => createAccount(store, input)));
+    const config = input.connector === 'amazon-ads' ? amazonConfigFromEnv(input.profileId) : null;
+    if (input.connector === 'amazon-ads' && input.dataset !== 'workspace')
+      throw new AppError('Connect live profiles in Your workspace.');
+    const profile = config
+      ? (await new AmazonAdsConnector(config).listProfiles()).find(
+          (p) => p.profileId === input.profileId,
+        )
+      : undefined;
+    res.status(201).json(store.transaction(() => createAccount(store, input, new Date(), profile)));
+  });
+
+  app.get('/api/brain/accounts/:id/reports', (req, res) => {
+    const { dataset } = scoped.parse(req.query);
+    const account = store.account(dataset, String(req.params.id));
+    res.json({ jobs: reportJobs(store, account.id) });
+  });
+  app.post('/api/brain/accounts/:id/reports/:key/retry', (req, res) => {
+    const key = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .parse(req.params.key);
+    const { dataset, reportId } = scoped
+      .extend({
+        reportId: z
+          .string()
+          .regex(/^[a-zA-Z0-9-]{1,100}$/)
+          .optional(),
+      })
+      .parse(req.body);
+    const account = store.account(dataset, String(req.params.id));
+    res.json(resetReportJob(store, account, key, reportId));
   });
 
   app.patch('/api/brain/accounts/:id/policy', (req, res) => {
@@ -51,6 +96,12 @@ export function brainRoutes(app: Express, store: Store) {
       );
     store.transaction(() => {
       store.saveAccount(next);
+      if (next.policy.version !== account.policy.version)
+        store.db
+          .prepare(
+            "UPDATE proposals SET status='cancelled',body=json_set(body,'$.status','cancelled','$.updatedAt',?,'$.history[#]',json_object('at',?,'status','cancelled','note','Account policy changed; generate a new proposal.')) WHERE account_id=? AND status IN ('proposed','authorized')",
+          )
+          .run(new Date().toISOString(), new Date().toISOString(), account.id);
       store.activity(
         dataset,
         'system',
@@ -77,6 +128,28 @@ export function brainRoutes(app: Express, store: Store) {
     if (campaign.attributionDays !== account.attributionDays)
       throw new AppError('The campaign click window must match the account attribution window.');
     const snapshot = store.snapshot(account.id);
+    if (!snapshot) throw new AppError('Synchronize the account before linking a campaign.');
+    const prior = store.links().find((l) => l.campaignId === campaign.id);
+    if (
+      prior &&
+      (prior.accountId !== account.id ||
+        prior.externalCampaignId !== input.externalCampaignId ||
+        prior.adGroupExternalId !== input.adGroupExternalId)
+    )
+      throw new AppError(
+        'This campaign already has a reporting identity. Create a new local campaign for a different account, campaign, or ad group.',
+      );
+    const binding = store.db
+      .prepare('SELECT campaign_id FROM report_bindings WHERE campaign_id=?')
+      .get(campaign.id);
+    if (binding)
+      throw new AppError(
+        'This campaign receives reporting-hub imports. Create a separate campaign for API reporting.',
+      );
+    if (!prior && (store.observations(campaign.id).length || store.targets(campaign.id).length))
+      throw new AppError(
+        'Link a new campaign with no imported history so reporting sources cannot be mixed.',
+      );
     if (snapshot && !snapshot.campaigns.some((c) => c.externalId === input.externalCampaignId))
       throw new AppError(
         'That platform campaign is not in the latest snapshot. Synchronize first.',
@@ -98,6 +171,7 @@ export function brainRoutes(app: Express, store: Store) {
     if (clash)
       throw new AppError('That platform campaign is already linked to another local campaign.');
     store.transaction(() => {
+      store.saveCampaign({ ...campaign, reportingTimezone: account.timezone });
       store.saveLink({
         campaignId: campaign.id,
         accountId: account.id,

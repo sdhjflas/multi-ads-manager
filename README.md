@@ -2,7 +2,7 @@
 
 A working local foundation for a profit-aware advertising manager, with equal emphasis on **product advertising** and **Amazon book advertising**.
 
-The application combines a dashboard, persistent campaign workspaces, validated performance imports, unit economics, measured experiment waves, a searchable learning library, and **the brain**: account synchronization, keyword and search-term economics, exact change proposals, and policy-governed execution with read-back. An optional AI provider (Claude preferred, OpenAI supported) reviews search-term relevance, explains proposals, and drafts experiment ideas. The long-term architecture is in [the blueprint](docs/ARCHITECTURE.md), and the project/platform investigation is in [the research](docs/RESEARCH.md).
+The application combines a dashboard, persistent campaign workspaces, validated performance imports, a bulk book portfolio with format-level economics, measured experiment waves, a searchable learning library, and **the brain**: durable account synchronization, keyword and search-term economics, exact change proposals, and policy-governed execution with read-back. An optional AI provider (Claude preferred, OpenAI supported) reviews search-term relevance, explains proposals, and drafts experiment ideas. The long-term architecture is in [the blueprint](docs/ARCHITECTURE.md), and the project/platform investigation is in [the research](docs/RESEARCH.md).
 
 ## Run it
 
@@ -43,18 +43,20 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 | Evidence review                 | Deterministic economic gates and a documented Bayesian conversion model; recommendations and saved operator decisions                                                                                                                                          |
 | Target explorer                 | Normalized keyword, product-target, and creative-cell imports, parent-report reconciliation, economic signals, and source-linked experiment seeds                                                                                                              |
 | The brain                       | Sandbox and Amazon Ads connectors, sync with health and watermarks, search-term ingestion, harvest/negative/bid/budget/pause proposals, operating modes, commitment envelope, outbox execution with read-back and reconciliation, kill switch, business ledger |
+| Book portfolio                  | Bulk and individual format setup, same-ASIN unit economics, 56-day loss allowances, daily budget ceilings, campaign reconciliation, and 50-row pagination                                                                                                      |
+| Amazon reporting                | Verified profile discovery, account timezones, durable report jobs, restart-safe polling, and validated campaign, keyword, search-term, and advertised-product facts                                                                                           |
 | Optional AI                     | Claude (default) or OpenAI structured outputs: search-term relevance review, proposal explanations, up to 24 ideas/request, cached by content, daily request reservations, no tools or platform actions                                                        |
 | Audit journal                   | Imports, setup revisions, experiment changes, and decisions                                                                                                                                                                                                    |
 | Integration preparation         | Setup guides for Amazon Ads, Meta, TikTok, Shopify, PBS HQ, and OpenAI                                                                                                                                                                                         |
 
-**Not implemented:** the Login with Amazon authorization flow itself (paste the refresh token into the server environment), Meta/TikTok/Shopify connectors, creative media production, product-target and placement actions, causal experiment execution, automatic order reconciliation, production multi-tenancy, and hosted deployment. The connection cards state their actual readiness. Execution against a live account requires `AMAZON_ADS_WRITES_ENABLED=true` and a supervised or bounded policy; see [The brain](docs/BRAIN.md). The structured planner is a template generator; it is not presented as an LLM.
+**Not implemented:** the Login with Amazon authorization flow itself (place the refresh token in the server environment), Meta/TikTok/Shopify connectors, creative media production, product-target and placement actions, causal experiment execution, automatic order/royalty reconciliation, production multi-tenancy, and hosted deployment. Execution against a live account requires `AMAZON_ADS_WRITES_ENABLED=true`, a supervised or bounded policy, complete reconciled reports, and verified book economics; see [The brain](docs/BRAIN.md) and [Amazon API contract](docs/AMAZON_API.md).
 
 ## First real workflow
 
 1. Select **Your workspace** in the sidebar.
-2. Add a campaign for each title/format or product with stable per-purchase economics. The Reporting hub maps its local name to an external ID or exact Amazon export name.
+2. For books, open **Book portfolio** and add or bulk-import one row per ASIN/format with its own net receipts, costs, profit reserve, 56-day loss allowance, and daily budget ceiling. Products continue to use campaign setup.
 3. Verify the reporting contract and costs. Unverified items can be saved, but do not receive scaling recommendations.
-4. Open **Reporting hub**, save the source mappings, and preview/apply a daily report across your campaigns. Include explicit zero rows for no-delivery days and refresh the trailing attribution window. See [the reporting workflow](docs/REPORTING.md) and [the import contract](docs/IMPORTS.md).
+4. Use **Reporting hub** for reviewed CSV workflows, or connect a verified Amazon Ads profile in **The brain** for durable API report jobs. A local campaign has one reporting identity; file and API sources cannot be mixed. See [the reporting workflow](docs/REPORTING.md), [the import contract](docs/IMPORTS.md), and [the Amazon API contract](docs/AMAZON_API.md).
 5. Inspect a campaign's unit economics and mature evidence. Recommendations are observational screening signals, not verified business profit.
 6. Build an experiment, shortlist a small wave, and export the candidate library for review.
 7. Record the recommendation decision. Manage actual advertising in the platform console until a separately tested execution integration exists.
@@ -65,7 +67,7 @@ For the complete candidate → measured wave → recorded finding → follow-up 
 
 ## The brain
 
-Open **The brain** in the demo: a simulated Amazon Ads account is already linked to the three sample book campaigns. Press **Run brain** to synchronize, evaluate every keyword and search term against the campaign economics, and generate proposals. Authorize a proposal and press **Execute** to see the outbox, platform read-back, and the kill switch in action. In Your workspace, connect a sandbox account or an Amazon Ads profile (server credentials in `.env`), link campaigns, and choose an operating mode: observe, recommend, supervised, or bounded. The full cycle, action classes, envelope, and boundaries are documented in [docs/BRAIN.md](docs/BRAIN.md).
+Open **The brain** in the demo: a simulated Amazon Ads account is already linked to the three sample book campaigns, and **Book portfolio** shows their fictional format economics. Press **Run brain** to synchronize, evaluate every keyword and search term, and generate proposals. In Your workspace, connect a sandbox account or discover a verified Amazon Ads profile from server credentials, link campaigns, map them to book formats, and choose an operating mode. The full cycle is documented in [docs/BRAIN.md](docs/BRAIN.md).
 
 ## Optional AI configuration
 
@@ -100,6 +102,7 @@ server/waves.ts       Frozen plans, conditional comparisons, and learning revisi
 server/ai/            Provider boundary (Claude, OpenAI) and structured tasks; no action tools
 server/connectors/    Connector contract, simulated account, Amazon Ads v3 adapter
 server/brain/         Accounts and policy, sync, proposals, execution outbox, view, routes
+server/books.ts       Book catalog, advertised-product facts, title economics, loss gates
 tests/                Economic, import, API, brain, connector, and AI-boundary tests
 e2e/                  Browser journeys
 docs/RESEARCH.md       Local project findings and primary-source research
@@ -109,6 +112,7 @@ docs/IMPORTS.md        Supported report contract and limitations
 docs/REPORTING.md      Portfolio batch workflow, source contracts, and correction history
 docs/EXPERIMENTS.md    Measurement workflow, budget accounting, and evidence boundaries
 docs/BRAIN.md          Sync, proposals, operating modes, execution, and AI review
+docs/AMAZON_API.md     Implemented Ads API/reporting contract and pilot checks
 ```
 
 The repository is public. Use synthetic fixtures only; do not commit client reports, financial exports, credentials, or copies of private source project data.

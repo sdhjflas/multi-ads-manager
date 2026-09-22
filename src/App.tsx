@@ -67,6 +67,7 @@ import { TargetExplorer, TargetDetail } from './TargetExplorer';
 import { WaveBoard, WaveDetail, WaveForm, LearningLibrary } from './Waves';
 import { ReportingHub } from './Reporting';
 import { BrainPage } from './Brain';
+import { BooksPage } from './Books';
 
 type Page =
   | 'overview'
@@ -78,6 +79,7 @@ type Page =
   | 'learning'
   | 'intelligence'
   | 'brain'
+  | 'portfolio'
   | 'reporting'
   | 'connections'
   | 'activity'
@@ -103,6 +105,7 @@ const nav: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={18} /> },
   { id: 'products', label: 'Product ads', icon: <ShoppingBag size={18} /> },
   { id: 'books', label: 'Amazon books', icon: <BookOpen size={18} /> },
+  { id: 'portfolio', label: 'Book portfolio', icon: <CircleDollarSign size={18} /> },
   { id: 'experiments', label: 'Experiment lab', icon: <FlaskConical size={18} /> },
   { id: 'waves', label: 'Test waves', icon: <ChartNoAxesCombined size={18} /> },
   { id: 'learning', label: 'Learning library', icon: <BookOpen size={18} /> },
@@ -160,6 +163,12 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
     title: 'The brain behind the campaigns.',
     subtitle:
       'Live platform state, every search term measured against your economics, and exact changes you can authorize or automate within limits.',
+  },
+  portfolio: {
+    eyebrow: 'BUILT FOR A WHOLE CATALOG',
+    title: 'Give every book a path to profit.',
+    subtitle:
+      'Separate formats, verified unit economics, and a clear loss allowance for every title.',
   },
   connections: {
     eyebrow: 'YOUR CONNECTED WORKSPACE',
@@ -471,8 +480,8 @@ export function App() {
                 </>
               ) : (
                 <>
-                  <strong>Your workspace.</strong> Imported reports and local plans. Live ad
-                  management is not enabled.
+                  <strong>Your workspace.</strong> Reports, book economics, and campaign plans.
+                  Account policies control platform changes.
                 </>
               )}
             </span>
@@ -928,6 +937,9 @@ export function App() {
                   onFollowUp={(learningId) => setModal({ type: 'experiment', learningId })}
                 />
               )}
+              {page === 'portfolio' && (
+                <BooksPage dataset={dataset} query={query} onAccounts={() => navigate('brain')} />
+              )}
               {page === 'brain' && (
                 <BrainPage
                   data={data}
@@ -1204,7 +1216,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.3<span className="footer-dot">·</span>Local advisory mode
+              Orbit v0.4<span className="footer-dot">·</span>Local advisory mode
               <ShieldCheck size={12} />
             </span>
           </footer>

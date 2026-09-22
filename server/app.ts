@@ -16,6 +16,8 @@ import { Store } from './store.js';
 import { aiProvider, aiStatus } from './ai/provider.js';
 import { generateIdeas } from './ai/tasks.js';
 import { brainRoutes } from './brain/routes.js';
+import { bookRoutes } from './book-routes.js';
+import { ConnectorError } from './connectors/connector.js';
 import { amazonConfigured } from './connectors/amazon.js';
 import { campaignView, dayAt, decide, metrics, sumMetrics } from './engine.js';
 import { importTemplate, parseImport } from './importer.js';
@@ -52,6 +54,14 @@ export function createApp(store: Store) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'",
+    );
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    );
     // This milestone is a loopback-only single-operator app, not tenant auth.
     const host = new URL(`http://${req.headers.host || 'invalid'}`).hostname;
     if (!['localhost', '127.0.0.1', '[::1]'].includes(host))
@@ -128,17 +138,21 @@ export function createApp(store: Store) {
       summary: sumMetrics(views.map((v) => v.metrics)),
       comparisonComplete:
         items.length > 0 &&
-        items.every(({ rows }) => {
+        items.every(({ c, rows }) => {
           const dates = new Set(rows.map((row) => row.date));
-          return Array.from({ length: days * 2 }, (_, i) => dayAt(now, -i - 1)).every((date) =>
-            dates.has(date),
-          );
+          return Array.from({ length: days * 2 }, (_, i) =>
+            dayAt(now, -i - 1, c.reportingTimezone),
+          ).every((date) => dates.has(date));
         }),
       previous: sumMetrics(
         items.map(({ c, rows }) =>
           metrics(
             c,
-            rows.filter((r) => r.date >= dayAt(now, -days * 2) && r.date < dayAt(now, -days)),
+            rows.filter(
+              (r) =>
+                r.date >= dayAt(now, -days * 2, c.reportingTimezone) &&
+                r.date < dayAt(now, -days, c.reportingTimezone),
+            ),
           ),
         ),
       ),
@@ -148,7 +162,7 @@ export function createApp(store: Store) {
           items.map(({ c, rows }) =>
             metrics(
               c,
-              rows.filter((r) => r.date === date),
+              rows.filter((r) => r.date === dayAt(now, -days + i, c.reportingTimezone)),
             ),
           ),
         );
@@ -178,8 +192,8 @@ export function createApp(store: Store) {
 
   app.post('/api/campaigns', (req, res) => {
     const input = campaignInput.parse(req.body);
-    if (store.campaigns(input.dataset).length >= 200)
-      throw new AppError('This local release supports up to 200 campaign workspaces.');
+    if (store.campaigns(input.dataset).length >= 2000)
+      throw new AppError('This local release supports up to 2,000 campaign workspaces.');
     const campaign: Campaign = {
       ...input,
       id: randomUUID(),
@@ -223,6 +237,7 @@ export function createApp(store: Store) {
     if (
       (store.observations(existing.id).length ||
         store.targets(existing.id).length ||
+        store.links().some((l) => l.campaignId === existing.id) ||
         store.db
           .prepare('SELECT 1 FROM report_bindings WHERE campaign_id=? LIMIT 1')
           .get(existing.id)) &&
@@ -255,6 +270,10 @@ export function createApp(store: Store) {
         'Import business reports into Your workspace. Demo observations stay separate.',
       );
     const campaign = store.campaign(input.dataset, input.campaignId);
+    if (store.links().some((l) => l.campaignId === campaign.id))
+      throw new AppError(
+        'API-linked campaigns receive performance through account synchronization. Use a separate campaign for file imports.',
+      );
     const rows = parseImport(input, campaign);
     store.transaction(() => {
       const refunds = new Map(store.observations(campaign.id).map((r) => [r.date, r.refundsCents]));
@@ -292,6 +311,10 @@ export function createApp(store: Store) {
         'Target reports belong in Your workspace, separately from synthetic demo data.',
       );
     const campaign = store.campaign(input.dataset, input.campaignId);
+    if (store.links().some((l) => l.campaignId === campaign.id))
+      throw new AppError(
+        'API-linked campaigns receive target performance through account synchronization.',
+      );
     const entries = parseTargetImport(input, campaign);
     const current = store.targets(campaign.id);
     if (new Set([...current.map((t) => t.id), ...entries.map((e) => e.target.id)]).size > 500)
@@ -450,6 +473,7 @@ export function createApp(store: Store) {
   waveRoutes(app, store);
   reportRoutes(app, store);
   brainRoutes(app, store);
+  bookRoutes(app, store);
 
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);
@@ -508,6 +532,8 @@ export function createApp(store: Store) {
       });
     if (error instanceof AppError)
       return void res.status(error.status).json({ error: error.message });
+    if (error instanceof ConnectorError)
+      return void res.status(error.kind === 'invalid' ? 400 : 503).json({ error: error.message });
     if (error instanceof SyntaxError)
       return void res.status(400).json({ error: 'Invalid JSON request.' });
     if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large')

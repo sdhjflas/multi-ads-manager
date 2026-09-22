@@ -1,6 +1,6 @@
 # Investigation: a contribution-first advertising system
 
-Researched September 20, 2026. Both product advertising and Amazon book advertising have equal priority. Pathway currently manages book campaigns in the Amazon advertising console and does **not** have approved Ads API access, according to the project owner.
+Researched September 20–22, 2026. Both product advertising and Amazon book advertising have equal priority. Pathway currently manages book campaigns in the Amazon advertising console. A business partner believes an API connection exists, but the exact product—Amazon Ads API, Selling Partner API, or Advantage access—and the location of its server configuration still need confirmation. No credentials were requested or inspected.
 
 This document distinguishes observed local implementation, documented platform behavior, and our proposed design. No live accounts were queried and no ads were launched.
 
@@ -53,9 +53,9 @@ A targeted inspection of `pbs-MCP-Server` and `sages-brain` confirmed related pu
 
 ### Amazon Ads is a separate integration
 
-Amazon describes its Ads API as the programmatic interface for advertising management and reporting, including integrations built by partners serving advertisers. Access and advertiser authorization need to be arranged separately from the existing SP-API reporting connection. For this project, the immediate path is API application preparation plus useful CSV workflows. [Amazon Ads API overview](https://advertising.amazon.com/about-api)
+Amazon describes its Ads API as the programmatic interface for advertising management and reporting, including integrations built by partners serving advertisers. Access and advertiser authorization are separate from the existing SP-API reporting connection. Orbit can now discover Ads profiles and run its Reporting v3 contract when approved credentials are configured; CSV workflows remain available. [Amazon Ads API overview](https://advertising.amazon.com/about-api)
 
-The official developer portal pages were reachable, but their rendered API content was not available in the text retrieval environment. Exact current endpoint versions, scopes, media types, quotas, regional behavior, author eligibility, and report schemas therefore remain **implementation-time verification items**, not claims of a completed adapter. [Getting started](https://advertising.amazon.com/API/docs/en-us/guides/get-started/overview), [reporting guide](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/overview)
+The official developer documentation and Amazon's published Postman collections were checked on September 22, 2026. The implemented contract covers profile discovery, Sponsored Products v3 entity reads/writes, and the `spCampaigns`, `spTargeting`, `spSearchTerm`, and `spAdvertisedProduct` daily reports. Account authorization, quota behavior, and actual profile/report parity remain pilot verification items. See [the implemented contract](AMAZON_API.md), [Getting started](https://advertising.amazon.com/API/docs/en-us/guides/get-started/overview), and [Reporting v3](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/overview).
 
 ### Book tests are mostly targeting and bidding tests
 

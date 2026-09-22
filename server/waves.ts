@@ -61,6 +61,7 @@ const economics = (c: Campaign) => ({
   verified: c.economicsVerified,
   window: c.attributionDays,
   currency: c.currency,
+  timezone: c.reportingTimezone || 'UTC',
   entity: c.entityName,
   channel: c.channel,
 });
@@ -99,10 +100,13 @@ export function registerWave(
   // Call inside BEGIN IMMEDIATE so concurrent plans cannot reserve the same allowance.
   const experiment = store.record<Experiment>(input.dataset, 'experiment', input.experimentId);
   const campaign = store.campaign(input.dataset, experiment.campaignId);
-  const today = dayAt(now);
+  const today = dayAt(now, 0, campaign.reportingTimezone);
   const duration = (Date.parse(input.endDate) - Date.parse(input.startDate)) / 86_400_000 + 1;
   if (duration < 7 || duration > 56) throw new AppError('A wave must cover 7–56 reporting days.');
-  if (input.startDate < dayAt(now, -730) || input.endDate > dayAt(now, 90))
+  if (
+    input.startDate < dayAt(now, -730, campaign.reportingTimezone) ||
+    input.endDate > dayAt(now, 90, campaign.reportingTimezone)
+  )
     throw new AppError('Use a window within the last two years and the next 90 days.');
   if (input.registration === 'prospective' && input.startDate <= today)
     throw new AppError(
@@ -265,12 +269,16 @@ export function evaluateWave(
 ): WaveEvaluation {
   const current = store.campaign(wave.dataset, wave.campaignId);
   const snapshot = wave.campaignSnapshot;
-  const today = dayAt(now);
-  const through = [wave.endDate, dayAt(now, -snapshot.attributionDays - 1)].sort()[0];
+  const today = dayAt(now, 0, snapshot.reportingTimezone);
+  const through = [
+    wave.endDate,
+    dayAt(now, -snapshot.attributionDays - 1, snapshot.reportingTimezone),
+  ].sort()[0];
   const expected = Math.max(
     0,
     Math.floor(
-      (Date.parse([wave.endDate, dayAt(now, -1)].sort()[0]) - Date.parse(wave.startDate)) /
+      (Date.parse([wave.endDate, dayAt(now, -1, snapshot.reportingTimezone)].sort()[0]) -
+        Date.parse(wave.startDate)) /
         86_400_000,
     ) + 1,
   );

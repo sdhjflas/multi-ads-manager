@@ -161,7 +161,11 @@ export function targetView(
     channel: campaign.channel,
     metrics: metrics(
       campaign,
-      rows.filter((r) => r.date >= dayAt(now, -days) && r.date < dayAt(now)),
+      rows.filter(
+        (r) =>
+          r.date >= dayAt(now, -days, campaign.reportingTimezone) &&
+          r.date < dayAt(now, 0, campaign.reportingTimezone),
+      ),
     ),
     signal: {
       kind,

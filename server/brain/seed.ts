@@ -3,13 +3,17 @@ import { Store } from '../store.js';
 import { sandboxSpec } from '../connectors/sandbox.js';
 import { connectorFor, defaultPolicy } from './accounts.js';
 import { runBrain } from './execution.js';
+import { seedBooks } from '../seed-books.js';
 
 /**
  * Connects the demo book campaigns to a simulated advertiser so the brain is
  * fully exercisable without credentials. Everything here is synthetic.
  */
 export async function seedBrain(store: Store) {
-  if (store.accounts('demo').length) return;
+  if (store.accounts('demo').length) {
+    seedBooks(store);
+    return;
+  }
   const now = store.reportingTime('demo');
   const books = store.campaigns('demo').filter((c) => c.vertical === 'books');
   if (!books.length) return;
@@ -88,4 +92,5 @@ export async function seedBrain(store: Store) {
   store.saveAccount(quiet);
   await runBrain(store, quiet, connectorFor(store, quiet, now), now, { sync: true });
   store.saveAccount({ ...store.account('demo', account.id), policy: account.policy });
+  seedBooks(store);
 }

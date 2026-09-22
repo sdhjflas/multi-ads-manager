@@ -1,11 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { createApp } from '../server/app.js';
 import { Store } from '../server/store.js';
 import { seedDemo } from '../server/seed.js';
 import { seedWaves } from '../server/seed-waves.js';
 import { seedBrain } from '../server/brain/seed.js';
-import { connectorFor, createAccount, defaultPolicy } from '../server/brain/accounts.js';
+import {
+  connectorFor,
+  createAccount,
+  defaultPolicy,
+  versionPolicy,
+} from '../server/brain/accounts.js';
 import { analyzeAccount, dedupeProposals } from '../server/brain/policy.js';
 import {
   authorizeProposal,
@@ -182,6 +188,59 @@ describe('policy engine', () => {
 });
 
 describe('execution outbox', () => {
+  it('cancels a reviewed change after the operating policy changes', async () => {
+    const p = byClass('bid-up')[0];
+    authorizeProposal(store, account(), p.id, 'operator', now);
+    const { version: _, ...input } = account().policy;
+    store.saveAccount({ ...account(), policy: versionPolicy({ ...input, maxBidStepPct: 5 }) });
+    const outcome = await executeProposal(store, account(), sandbox(), p.id, now);
+    expect(outcome.proposal.status).toBe('cancelled');
+    expect(outcome.proposal.history.at(-1)?.note).toMatch(/policy changed/);
+    expect(store.executions('demo')).toHaveLength(0);
+  });
+  it('keeps commitment, deduplication, and kill-switch safety beyond 2,000 proposals', () => {
+    const template = byClass('bid-up')[0];
+    const sentinel: Proposal = {
+      ...template,
+      id: randomUUID(),
+      idempotencyKey: 'old-authorized-sentinel',
+      targetRef: 'keyword:old-authorized-sentinel',
+      status: 'authorized',
+      createdAt: '2000-01-01T00:00:00.000Z',
+      updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+    store.transaction(() => {
+      store.saveProposal(sentinel);
+      for (let i = 0; i < 2100; i++)
+        store.saveProposal({
+          ...template,
+          id: randomUUID(),
+          idempotencyKey: `commitment-${i}`,
+          status: 'applied',
+          maxCommitmentCents: 1,
+          createdAt: new Date(now.getTime() + i + 1).toISOString(),
+          updatedAt: now.toISOString(),
+        });
+    });
+    expect(committedToday(store, account(), now.toISOString().slice(0, 10))).toBe(2100);
+    expect(
+      dedupeProposals(
+        store,
+        account(),
+        [
+          {
+            ...sentinel,
+            id: randomUUID(),
+            idempotencyKey: 'new-candidate-for-old-target',
+            status: 'proposed',
+          },
+        ],
+        now,
+      ),
+    ).toHaveLength(0);
+    setKillSwitch(store, account(), true, now);
+    expect(store.proposal('demo', sentinel.id).status).toBe('cancelled');
+  });
   it('applies an authorized negative keyword with read-back and refuses to repeat it', async () => {
     const p = byClass('negative')[0];
     authorizeProposal(store, account(), p.id, 'operator', now);
@@ -284,6 +343,20 @@ describe('execution outbox', () => {
 });
 
 describe('bounded automation', () => {
+  it('keeps observe mode read-only and does not persist recommendations', async () => {
+    store.db.exec('DELETE FROM proposals');
+    const observing = {
+      ...account(),
+      policy: { ...account().policy, mode: 'observe' as const, aiReview: true },
+    };
+    store.saveAccount(observing);
+    const summary = await runBrain(store, observing, sandbox(), now, { sync: false });
+    expect(summary.proposed).toBe(0);
+    expect(summary.notes).toContain(
+      'Observe mode synchronized evidence without saving change proposals.',
+    );
+    expect(store.accountProposals(observing.id, ['proposed'])).toHaveLength(0);
+  });
   it('authorizes and executes only the allowed classes and leaves review items alone', async () => {
     const bounded = {
       ...account(),
@@ -431,6 +504,35 @@ describe('workspace accounts and API', () => {
     const after = (await request(app).get('/api/brain?dataset=workspace&days=28').expect(200)).body;
     expect(after.scorecards[0].linked).toBe(true);
     expect(after.scorecards[0].searchTerms).toBeGreaterThan(0);
+  });
+  it('starts a verified live profile in observe mode with AI review off', () => {
+    vi.stubEnv('AMAZON_ADS_CLIENT_ID', 'test-client');
+    vi.stubEnv('AMAZON_ADS_CLIENT_SECRET', 'test-secret');
+    vi.stubEnv('AMAZON_ADS_REFRESH_TOKEN', 'test-refresh');
+    try {
+      const live = createAccount(
+        store,
+        {
+          dataset: 'workspace',
+          name: 'Live publisher',
+          connector: 'amazon-ads',
+          profileId: '123',
+          marketplace: 'US',
+          attributionDays: 14,
+        },
+        now,
+        {
+          profileId: '123',
+          countryCode: 'US',
+          currencyCode: 'USD',
+          timezone: 'America/Los_Angeles',
+          accountInfo: { id: 'advertiser', name: 'Live publisher', type: 'seller' },
+        },
+      );
+      expect(live.policy).toMatchObject({ mode: 'observe', aiReview: false });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
   it('validates the operating policy and the ledger import', async () => {
     const a = account();

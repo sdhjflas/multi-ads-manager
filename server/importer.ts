@@ -37,6 +37,10 @@ export function parseImport(
   campaign: Campaign,
   now = new Date(),
 ): Observation[] {
+  if ((campaign.reportingTimezone || 'UTC') !== input.timezone)
+    throw new AppError(
+      'The report timezone must match the campaign. API-linked campaigns use their verified Amazon profile calendar.',
+    );
   if (input.dataset !== campaign.dataset || input.campaignId !== campaign.id)
     throw new AppError('Campaign and workspace do not match.');
   if (input.attributionDays !== campaign.attributionDays)

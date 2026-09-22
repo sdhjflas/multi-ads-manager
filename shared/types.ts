@@ -83,6 +83,7 @@ export interface Campaign {
   accountName: string;
   status: 'draft' | 'observing' | 'paused';
   currency: 'USD';
+  reportingTimezone?: string;
   retailPriceCents: number;
   netReceiptCents: number;
   variableCostCents: number;
@@ -385,7 +386,7 @@ export interface Policy {
   bidMinClicks: number;
 }
 
-export type SyncStatus = 'never' | 'ok' | 'partial' | 'stale' | 'throttled' | 'error';
+export type SyncStatus = 'never' | 'ok' | 'partial' | 'stale' | 'throttled' | 'error' | 'pending';
 export interface SyncHealth {
   status: SyncStatus;
   message: string;
@@ -404,7 +405,10 @@ export interface AdAccount {
   profileId: string;
   marketplace: string;
   currency: 'USD';
-  timezone: 'UTC';
+  timezone: string;
+  region?: 'NA' | 'EU' | 'FE';
+  verifiedAt?: string;
+  accountType?: string;
   attributionDays: number;
   policy: Policy;
   health: SyncHealth;

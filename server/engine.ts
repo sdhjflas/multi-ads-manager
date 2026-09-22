@@ -2,10 +2,25 @@ import { createHash } from 'node:crypto';
 import type { Campaign, CampaignView, Decision, Metrics, Observation } from '../shared/types.js';
 
 const DAY = 86_400_000;
-export const dayAt = (now: Date, offset = 0) =>
-  new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + offset * DAY)
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+export const dayAt = (now: Date, offset = 0, timezone = 'UTC') => {
+  if (timezone === 'UTC') return new Date(now.getTime() + offset * DAY).toISOString().slice(0, 10);
+  let formatter = dateFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    dateFormatters.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(now);
+  const value = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  return new Date(Date.UTC(value('year'), value('month') - 1, value('day')) + offset * DAY)
     .toISOString()
     .slice(0, 10);
+};
 export const ratio = (a: number, b: number) => (b > 0 ? a / b : null);
 export const unitContribution = (c: Campaign) =>
   c.economicsVerified ? c.netReceiptCents - c.variableCostCents : null;
@@ -130,12 +145,12 @@ export function probabilityAbove(threshold: number, successes: number, trials: n
 }
 
 export function decide(c: Campaign, allRows: Observation[], now = new Date()): Decision {
-  const today = dayAt(now);
+  const today = dayAt(now, 0, c.reportingTimezone);
   const rows = allRows
-    .filter((r) => r.date >= dayAt(now, -56) && r.date < today)
+    .filter((r) => r.date >= dayAt(now, -56, c.reportingTimezone) && r.date < today)
     .sort((a, b) => a.date.localeCompare(b.date));
   // Exclude the last attributionDays complete click cohorts, plus today's partial cohort.
-  const matureThrough = dayAt(now, -c.attributionDays - 1);
+  const matureThrough = dayAt(now, -c.attributionDays - 1, c.reportingTimezone);
   const mature = rows.filter((r) => r.date <= matureThrough);
   const m = metrics(c, mature);
   const unit = unitContribution(c);
@@ -191,7 +206,7 @@ export function decide(c: Campaign, allRows: Observation[], now = new Date()): D
     for (let date = rows[0].date; date < today; date = dayAt(new Date(`${date}T00:00:00Z`), 1)) {
       if (!dates.has(date)) {
         base.blockers.push(
-          'Daily report coverage has gaps; import explicit zero rows for days without delivery.',
+          'Daily report coverage has gaps; reconcile report coverage before using this conversion model.',
         );
         break;
       }
@@ -273,7 +288,11 @@ export function campaignView(
   days: number,
   now = new Date(),
 ): CampaignView {
-  const selected = rows.filter((r) => r.date >= dayAt(now, -days) && r.date < dayAt(now));
+  const selected = rows.filter(
+    (r) =>
+      r.date >= dayAt(now, -days, c.reportingTimezone) &&
+      r.date < dayAt(now, 0, c.reportingTimezone),
+  );
   const unit = unitContribution(c);
   return {
     ...c,

@@ -15,6 +15,10 @@ import type {
 } from '../../shared/types.js';
 import { Store } from '../store.js';
 import { dayAt, decide, metrics, unitContribution } from '../engine.js';
+import { bookBlockers, bookCommitmentBlocker, bookViews, productRows } from '../books.js';
+import { targetsExceedCampaign } from '../targets.js';
+import type { BookView } from '../../shared/books.js';
+import type { ReportRow } from '../connectors/connector.js';
 import { targetKey } from '../targets.js';
 import { holdForOpenWave } from '../waves.js';
 import { normalizeTerm } from '../connectors/connector.js';
@@ -46,7 +50,10 @@ function cell(campaign: Campaign, id: string, label: string, rows: Observation[]
   const decision = decide({ ...campaign, id, name: label }, rows, now);
   const mature = metrics(
     campaign,
-    rows.filter((r) => r.date <= decision.matureThrough && r.date >= dayAt(now, -56)),
+    rows.filter(
+      (r) =>
+        r.date <= decision.matureThrough && r.date >= dayAt(now, -56, campaign.reportingTimezone),
+    ),
   );
   return { decision, mature };
 }
@@ -93,6 +100,7 @@ export function analyzeCampaign(
   link: AccountLink,
   now: Date,
   days = 28,
+  bookContext?: { views: BookView[]; rows: ReportRow[] },
 ): CampaignAnalysis {
   const campaign = store.campaign(account.dataset, link.campaignId);
   const policy = account.policy;
@@ -107,6 +115,39 @@ export function analyzeCampaign(
   const waves = store.records<TestWave>(account.dataset, 'wave', 200);
   const decision = holdForOpenWave(decide(campaign, rows, now), waves, campaign.id);
   const blockers: string[] = [...decision.blockers];
+  if (account.health.status !== 'ok')
+    blockers.push('Wait for a complete, successful account synchronization.');
+  if (
+    account.connector === 'amazon-ads' &&
+    (!account.verifiedAt || (campaign.reportingTimezone || 'UTC') !== account.timezone)
+  )
+    blockers.push('Verify the account identity and reporting timezone.');
+  const targets = store.targets(campaign.id);
+  const targetRowsById = store.targetRowsForCampaign(campaign.id);
+  const termList = store.searchTerms(campaign.id);
+  const termRowsById = store.searchTermRowsForCampaign(campaign.id);
+  const termsByKeyword = new Map<string, { rows: Observation[] }[]>();
+  for (const term of termList) {
+    const list = termsByKeyword.get(term.keywordExternalId) || [];
+    list.push({ rows: termRowsById.get(term.id) || [] });
+    termsByKeyword.set(term.keywordExternalId, list);
+  }
+  for (const [keyword, terms] of termsByKeyword) {
+    if (targetsExceedCampaign(terms, targetRowsById.get(targetKey(campaign.id, keyword)) || [])) {
+      blockers.push('Reconcile search-term totals with their parent keyword report.');
+      break;
+    }
+  }
+  if (
+    targetsExceedCampaign(
+      [...targetRowsById.values()].map((rows) => ({ rows })),
+      rows,
+    )
+  )
+    blockers.push('Reconcile keyword totals with their campaign report.');
+  blockers.push(
+    ...bookBlockers(store, account, campaign, link.externalCampaignId, now, bookContext),
+  );
   const platformCampaign = snapshot?.campaigns.find(
     (c) => c.externalId === link.externalCampaignId,
   );
@@ -128,7 +169,11 @@ export function analyzeCampaign(
     campaignMature.orders > 0 ? campaignMature.refundsCents / campaignMature.orders : 0;
   const room = unit === null ? null : unit - campaign.targetProfitCents - refundPerOrder;
   const avgDaily = (cellRows: Observation[], pick: (r: Observation) => number) => {
-    const recent = cellRows.filter((r) => r.date >= dayAt(now, -14) && r.date < dayAt(now));
+    const recent = cellRows.filter(
+      (r) =>
+        r.date >= dayAt(now, -14, campaign.reportingTimezone) &&
+        r.date < dayAt(now, 0, campaign.reportingTimezone),
+    );
     return recent.length ? recent.reduce((s, r) => s + pick(r), 0) / recent.length : 0;
   };
   const proposals: Proposal[] = [];
@@ -172,6 +217,7 @@ export function analyzeCampaign(
     policyVersion: policy.version,
     idempotencyKey: hash([
       account.id,
+      policy.version,
       campaign.id,
       action.type,
       targetRef,
@@ -245,12 +291,11 @@ export function analyzeCampaign(
   }
 
   // ---- Keyword bids and pauses ---------------------------------------------
-  const targets = store.targets(campaign.id);
   for (const keyword of keywords) {
     if (keyword.state !== 'enabled') continue;
     const target = targets.find((t) => t.id === targetKey(campaign.id, keyword.externalId));
     if (!target) continue;
-    const cellRows = store.targetRows(target.id);
+    const cellRows = targetRowsById.get(target.id) || [];
     const { decision: d, mature } = cell(campaign, target.id, keyword.text, cellRows, now);
     if (gated || d.kind === 'repair' || d.matureClicks < policy.bidMinClicks) continue;
     const ev = evidence(`${keyword.text} · ${keyword.matchType}`, d, mature, observedAt);
@@ -340,8 +385,8 @@ export function analyzeCampaign(
 
   // ---- Search terms ---------------------------------------------------------
   const terms: SearchTermView[] = [];
-  for (const term of store.searchTerms(campaign.id)) {
-    const termRows = store.searchTermRows(term.id);
+  for (const term of termList) {
+    const termRows = termRowsById.get(term.id) || [];
     if (!termRows.length) continue;
     const { decision: d, mature } = cell(campaign, term.id, term.term, termRows, now);
     const cached = store.aiReview<RelevanceReview>(relevanceKey(campaign.id, term.term, brief));
@@ -351,7 +396,11 @@ export function analyzeCampaign(
       campaignName: campaign.name,
       metrics: metrics(
         campaign,
-        termRows.filter((r) => r.date >= dayAt(now, -days) && r.date < dayAt(now)),
+        termRows.filter(
+          (r) =>
+            r.date >= dayAt(now, -days, campaign.reportingTimezone) &&
+            r.date < dayAt(now, 0, campaign.reportingTimezone),
+        ),
       ),
       mature: {
         clicks: mature.clicks,
@@ -366,7 +415,10 @@ export function analyzeCampaign(
       relevance: cached,
     };
     const text = normalizeTerm(term.term);
-    if (negativeTexts.has(text)) {
+    if (text === '*') {
+      view.signal = 'blocked';
+      view.reason = 'Amazon used a placeholder because no customer search term was available.';
+    } else if (negativeTexts.has(text)) {
       view.signal = 'blocked';
       view.reason = 'Already excluded by a negative keyword.';
     } else if (exactTexts.has(text)) {
@@ -451,7 +503,16 @@ export function analyzeCampaign(
       classPriority[a.actionClass] - classPriority[b.actionClass] ||
       b.evidence.spendCents - a.evidence.spendCents,
   );
-  return { campaign, link, decision, terms, proposals, blockers: [...new Set(blockers)] };
+  return {
+    campaign,
+    link,
+    decision,
+    terms,
+    proposals: proposals.filter(
+      (p) => !bookCommitmentBlocker(store, account, p, now, bookContext?.views, false),
+    ),
+    blockers: [...new Set(blockers)],
+  };
 }
 
 /** Removes proposals that duplicate open work or fall inside a cooldown, and applies the per-run cap. */
@@ -461,16 +522,17 @@ export function dedupeProposals(
   fresh: Proposal[],
   now: Date,
 ): Proposal[] {
-  const existing = store.proposals(account.dataset, 2000).filter((p) => p.accountId === account.id);
+  const open = store.accountProposals(account.id, OPEN_STATUSES);
+  const applied = store.accountProposals(account.id, ['applied']);
   const cooldownMs = account.policy.cooldownHours * 3_600_000;
   const kept: Proposal[] = [];
   for (const p of fresh) {
     if (store.proposalByKey(p.idempotencyKey)) continue;
-    const open = existing.some(
+    const alreadyOpen = open.some(
       (e) => e.campaignId === p.campaignId && e.targetRef === p.targetRef && isOpen(e.status),
     );
-    if (open) continue;
-    const recent = existing.some(
+    if (alreadyOpen) continue;
+    const recent = applied.some(
       (e) =>
         e.campaignId === p.campaignId &&
         e.targetRef === p.targetRef &&
@@ -490,6 +552,10 @@ export function analyzeAccount(
   now: Date,
   days = 28,
 ): CampaignAnalysis[] {
+  const bookContext =
+    account.connector === 'amazon-ads'
+      ? { views: bookViews(store, account.dataset, 56, now), rows: productRows(store, account.id) }
+      : undefined;
   return store
     .links(account.id)
     .filter((l) => {
@@ -499,7 +565,7 @@ export function analyzeAccount(
         return false;
       }
     })
-    .map((link) => analyzeCampaign(store, account, link, now, days));
+    .map((link) => analyzeCampaign(store, account, link, now, days, bookContext));
 }
 
 export const snapshotFor = (store: Store, account: AdAccount): PlatformSnapshot | null =>

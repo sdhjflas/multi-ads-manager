@@ -30,6 +30,7 @@ import { actionClasses } from '../shared/types';
 import { Badge, Empty, Modal } from './components';
 import { api, date, money, number, percent, timeAgo } from './lib';
 import './brain.css';
+import { AmazonReports } from './AmazonReports';
 
 const statusKind = (s: ProposalStatus) =>
   s === 'applied'
@@ -59,7 +60,7 @@ const modeLabel: Record<Policy['mode'], string> = {
 const healthKind = (status: AdAccount['health']['status']) =>
   status === 'ok'
     ? ('scale' as const)
-    : status === 'partial'
+    : status === 'partial' || status === 'pending'
       ? ('explore' as const)
       : status === 'never'
         ? ('neutral' as const)
@@ -98,6 +99,7 @@ type ModalState =
   | { type: 'account' }
   | { type: 'link'; account: AdAccount }
   | { type: 'policy'; account: AdAccount }
+  | { type: 'jobs'; account: AdAccount }
   | { type: 'ledger' }
   | { type: 'explain'; campaignId: string; ids: string[] }
   | { type: 'proposal'; proposal: Proposal }
@@ -280,6 +282,14 @@ export function BrainPage({
                 <RefreshCw size={15} />
                 Sync now
               </button>
+              {account.connector === 'amazon-ads' && (
+                <button
+                  className="button secondary"
+                  onClick={() => setModal({ type: 'jobs', account })}
+                >
+                  Report jobs
+                </button>
+              )}
               <button
                 className="button secondary"
                 onClick={() => setModal({ type: 'policy', account })}
@@ -856,6 +866,11 @@ export function BrainPage({
         </p>
       </div>
 
+      {modal?.type === 'jobs' && (
+        <Modal title="Amazon report jobs" onClose={() => setModal(null)}>
+          <AmazonReports account={modal.account} />
+        </Modal>
+      )}
       {modal?.type === 'account' && (
         <Modal
           title="Connect an advertising account"
@@ -955,6 +970,17 @@ function AccountForm({
   onSaved: () => void;
 }) {
   const [connector, setConnector] = useState<'sandbox' | 'amazon-ads'>('sandbox');
+  const [profiles, setProfiles] = useState<
+    {
+      profileId: string;
+      countryCode: string;
+      currencyCode: string;
+      timezone: string;
+      accountInfo: { name?: string; type: string };
+    }[]
+  >([]);
+  const [profileId, setProfileId] = useState(''),
+    [region, setRegion] = useState('');
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -999,6 +1025,7 @@ function AccountForm({
       <label>
         Account name
         <input
+          key={connector}
           name="name"
           required
           maxLength={160}
@@ -1006,25 +1033,76 @@ function AccountForm({
         />
       </label>
       {connector === 'amazon-ads' && (
-        <label>
-          Amazon Ads profile ID
-          <input name="profileId" required pattern="[a-zA-Z0-9_.:-]{1,120}" />
-          <span className="form-help">
-            {amazonConfigured
-              ? 'Server credentials are configured. The profile is read with those credentials.'
-              : 'Set AMAZON_ADS_CLIENT_ID, AMAZON_ADS_CLIENT_SECRET, and AMAZON_ADS_REFRESH_TOKEN on the server first.'}
-          </span>
-        </label>
+        <div className="form-stack">
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy || !amazonConfigured || dataset !== 'workspace'}
+            onClick={async () => {
+              setBusy(true);
+              setError('');
+              try {
+                const result = await api<{ profiles: typeof profiles; region: string }>(
+                  '/brain/amazon/profiles',
+                  { dataset },
+                );
+                setProfiles(result.profiles);
+                setRegion(result.region);
+                setProfileId(
+                  result.profiles.find((p) => p.currencyCode === 'USD')?.profileId || '',
+                );
+                if (!result.profiles.length)
+                  setError(
+                    'No profiles were returned for this region and authorization. Ask the account owner to check Ads API access.',
+                  );
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Discover Amazon profiles
+          </button>
+          <label>
+            Amazon Ads profile ID
+            <select
+              name="profileId"
+              required
+              value={profileId}
+              onChange={(e) => setProfileId(e.target.value)}
+            >
+              <option value="">Choose a verified profile</option>
+              {profiles.map((p) => (
+                <option key={p.profileId} value={p.profileId} disabled={p.currencyCode !== 'USD'}>
+                  {p.accountInfo.name || p.profileId} · {p.countryCode} · {p.currencyCode}
+                </option>
+              ))}
+            </select>
+            <span className="form-help">
+              {amazonConfigured
+                ? `${region ? region + ' region. ' : ''}Currency, marketplace, and timezone come from Amazon. USD profiles are supported in this release.`
+                : 'Ask your integration owner to configure the approved Amazon Ads API credentials on the server.'}
+            </span>
+          </label>
+          {profileId && (
+            <p className="form-help">
+              Reporting timezone: {profiles.find((p) => p.profileId === profileId)?.timezone}
+            </p>
+          )}
+        </div>
       )}
       <div className="form-grid two">
-        <label>
-          Marketplace
-          <input name="marketplace" defaultValue="US" maxLength={40} />
-        </label>
+        {connector === 'sandbox' && (
+          <label>
+            Marketplace
+            <input name="marketplace" defaultValue="US" maxLength={40} />
+          </label>
+        )}
         <label>
           Attribution window (days)
           <select name="attributionDays" defaultValue="14">
-            {[7, 14, 30].map((d) => (
+            {[1, 7, 14, 30].map((d) => (
               <option key={d} value={d}>
                 {d}
               </option>

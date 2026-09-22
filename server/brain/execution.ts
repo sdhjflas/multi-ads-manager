@@ -9,7 +9,8 @@ import type {
 import { Store } from '../store.js';
 import { AppError } from '../validation.js';
 import { ConnectorError, type Connector, type MutationResult } from '../connectors/connector.js';
-import { analyzeAccount, dedupeProposals, isOpen } from './policy.js';
+import { analyzeAccount, dedupeProposals, isOpen, OPEN_STATUSES } from './policy.js';
+import { bookCommitmentBlocker } from '../books.js';
 import { syncAccount } from './sync.js';
 import { accountNow } from './accounts.js';
 import { aiProvider } from '../ai/provider.js';
@@ -50,6 +51,10 @@ export function authorizeProposal(
     if (account.policy.mode === 'observe')
       throw new AppError(
         'This account is in observe mode. Switch to recommend, supervised, or bounded to authorize changes.',
+      );
+    if (p.policyVersion !== account.policy.version)
+      throw new AppError(
+        'The policy changed. Generate and review a new proposal before authorizing it.',
       );
     if (Date.parse(p.expiresAt) < now.getTime()) {
       store.saveProposal(transition(p, 'expired', 'Evidence expired before authorization.', now));
@@ -111,9 +116,8 @@ export function setKillSwitch(
     const next = { ...current, policy: { ...current.policy, killSwitch: on } };
     store.saveAccount(next);
     if (on)
-      for (const p of store.proposals(account.dataset, 2000))
-        if (p.accountId === account.id && ['authorized', 'reserved'].includes(p.status))
-          store.saveProposal(transition(p, 'cancelled', 'Kill switch engaged.', now));
+      for (const p of store.accountProposals(account.id, ['authorized', 'reserved']))
+        store.saveProposal(transition(p, 'cancelled', 'Kill switch engaged.', now));
     store.activity(
       account.dataset,
       'system',
@@ -126,19 +130,15 @@ export function setKillSwitch(
   });
 }
 
-const dayOf = (iso: string) => iso.slice(0, 10);
-
 /** Reserved and applied commitment for the account on the given UTC day. */
 export function committedToday(store: Store, account: AdAccount, day: string): number {
-  return store
-    .proposals(account.dataset, 2000)
-    .filter(
-      (p) =>
-        p.accountId === account.id &&
-        ['reserved', 'sending', 'uncertain', 'applied'].includes(p.status) &&
-        dayOf(p.updatedAt) === day,
-    )
-    .reduce((sum, p) => sum + p.maxCommitmentCents, 0);
+  return (
+    store.db
+      .prepare(
+        "SELECT COALESCE(SUM(json_extract(body,'$.maxCommitmentCents')),0) AS total FROM proposals WHERE account_id=? AND dataset=? AND status IN ('reserved','sending','uncertain','applied') AND substr(json_extract(body,'$.updatedAt'),1,10)=?",
+      )
+      .get(account.id, account.dataset, day) as { total: number }
+  ).total;
 }
 
 type PriorState = Record<string, string | number | null>;
@@ -151,17 +151,26 @@ async function currentState(
     case 'create-keyword': {
       const keywords = await connector.listKeywords([campaignId]);
       const text = p.action.keywordText.trim().toLowerCase();
+      const adGroup = p.action.adGroupExternalId;
       const found = keywords.find(
         (k) =>
-          k.text.trim().toLowerCase() === text && k.matchType === 'exact' && k.state !== 'archived',
+          k.adGroupExternalId === adGroup &&
+          k.text.trim().toLowerCase() === text &&
+          k.matchType === 'exact' &&
+          k.state !== 'archived',
       );
       return { exists: found ? 1 : 0, ...(found ? { externalId: found.externalId } : {}) };
     }
     case 'create-negative-keyword': {
       const negatives = await connector.listNegativeKeywords([campaignId]);
       const text = p.action.keywordText.trim().toLowerCase();
+      const adGroup = p.action.adGroupExternalId;
       const found = negatives.find(
-        (n) => n.text.trim().toLowerCase() === text && n.state !== 'archived',
+        (n) =>
+          n.adGroupExternalId === adGroup &&
+          n.matchType === 'negative-exact' &&
+          n.text.trim().toLowerCase() === text &&
+          n.state !== 'archived',
       );
       return { exists: found ? 1 : 0, ...(found ? { externalId: found.externalId } : {}) };
     }
@@ -349,6 +358,14 @@ export async function executeProposal(
     throw new AppError(`A ${p.status} proposal cannot be executed.`, 409);
   const policy = store.account(account.dataset, account.id).policy;
   if (policy.killSwitch) return fail(p, 'cancelled', 'Kill switch is engaged.');
+  if (
+    !p.authorization ||
+    p.authorization.policyVersion !== policy.version ||
+    p.policyVersion !== policy.version
+  )
+    return fail(p, 'cancelled', 'The policy changed after review. Generate a new proposal.');
+  if (p.authorization.by === 'policy' && !policy.allowedClasses.includes(p.actionClass))
+    return fail(p, 'cancelled', 'This action class is no longer allowed by policy.');
   if (policy.mode !== 'supervised' && policy.mode !== 'bounded')
     throw new AppError('Execution requires supervised or bounded mode.');
   if (!connector.writesEnabled)
@@ -369,6 +386,17 @@ export async function executeProposal(
     const fresh = store.proposal(account.dataset, id);
     if (fresh.status !== 'authorized') throw new AppError('Proposal changed while reserving.', 409);
     const today = now.toISOString().slice(0, 10);
+    const bookLimit = bookCommitmentBlocker(
+      store,
+      account,
+      fresh,
+      accountNow(store, account.dataset, now),
+    );
+    if (bookLimit) {
+      const next = transition(fresh, 'cancelled', bookLimit, now);
+      store.saveProposal(next);
+      return { ok: false as const, proposal: next };
+    }
     if (
       committedToday(store, account, today) + fresh.maxCommitmentCents >
       policy.maxDailyCommitmentCents
@@ -404,9 +432,14 @@ export async function executeProposal(
       'cancelled',
       `Platform state drifted from the reviewed state (${JSON.stringify(actual)}).`,
     );
+  const currentAccount = store.account(account.dataset, account.id);
+  if (currentAccount.policy.killSwitch || currentAccount.policy.version !== policy.version)
+    return fail(p, 'cancelled', 'The account policy changed while checking the platform.');
+  const currentProposal = store.proposal(account.dataset, id);
+  if (currentProposal.status !== 'reserved') return { proposal: currentProposal, attempt: null };
   const stillProposed = analyzeAccount(
     store,
-    { ...account, policy },
+    { ...store.account(account.dataset, account.id), policy },
     accountNow(store, account.dataset, now),
   )
     .flatMap((a) => a.proposals)
@@ -414,7 +447,8 @@ export async function executeProposal(
       (q) =>
         q.campaignId === p.campaignId &&
         q.targetRef === p.targetRef &&
-        q.actionClass === p.actionClass,
+        q.actionClass === p.actionClass &&
+        JSON.stringify(q.action) === JSON.stringify(p.action),
     );
   if (!stillProposed)
     return fail(p, 'cancelled', 'Current evidence no longer supports this change.');
@@ -570,12 +604,8 @@ export async function reconcileProposal(
 
 export function expireProposals(store: Store, account: AdAccount, now: Date) {
   store.transaction(() => {
-    for (const p of store.proposals(account.dataset, 2000))
-      if (
-        p.accountId === account.id &&
-        ['proposed', 'authorized'].includes(p.status) &&
-        Date.parse(p.expiresAt) < now.getTime()
-      )
+    for (const p of store.accountProposals(account.id, ['proposed', 'authorized']))
+      if (Date.parse(p.expiresAt) < now.getTime())
         store.saveProposal(transition(p, 'expired', 'Evidence expired.', now));
   });
 }
@@ -594,7 +624,26 @@ export interface BrainRunSummary {
  * configured, save new proposals, and in bounded mode authorize and execute
  * the allowed classes within the policy envelope.
  */
-export async function runBrain(
+const brainRuns = new WeakMap<Store, Map<string, Promise<BrainRunSummary>>>();
+export function runBrain(
+  store: Store,
+  account: AdAccount,
+  connector: Connector,
+  now = new Date(),
+  options: { sync?: boolean; fetcher?: typeof fetch } = {},
+): Promise<BrainRunSummary> {
+  const active = brainRuns.get(store) || new Map<string, Promise<BrainRunSummary>>();
+  brainRuns.set(store, active);
+  const existing = active.get(account.id);
+  if (existing) return existing;
+  const task = cycleBrain(store, account, connector, now, options).finally(() =>
+    active.delete(account.id),
+  );
+  active.set(account.id, task);
+  return task;
+}
+
+async function cycleBrain(
   store: Store,
   account: AdAccount,
   connector: Connector,
@@ -612,14 +661,18 @@ export async function runBrain(
   if (options.sync !== false) {
     const run = await syncAccount(store, account, connector, now);
     summary.sync = { status: run.status, message: run.message };
-    if (run.status === 'error' || run.status === 'throttled') {
-      summary.notes.push('Evaluation skipped because synchronization failed.');
+    if (run.status !== 'ok') {
+      summary.notes.push('Evaluation waits for a complete, successful synchronization.');
       return summary;
     }
   }
   account = store.account(account.dataset, account.id);
   const clock = accountNow(store, account.dataset, now);
   expireProposals(store, account, now);
+  if (account.policy.mode === 'observe') {
+    summary.notes.push('Observe mode synchronized evidence without saving change proposals.');
+    return summary;
+  }
   let analyses = analyzeAccount(store, account, clock);
   // Optional AI relevance review for terms the policy wants to act on.
   const provider = account.policy.aiReview ? aiProvider(options.fetcher) : null;
@@ -662,14 +715,9 @@ export async function runBrain(
   summary.proposed = fresh.length;
   if (account.policy.mode !== 'bounded' || account.policy.killSwitch) return summary;
   const eligible = store
-    .proposals(account.dataset, 2000)
-    .filter(
-      (p) =>
-        p.accountId === account.id &&
-        p.status === 'proposed' &&
-        !p.needsReview &&
-        account.policy.allowedClasses.includes(p.actionClass),
-    );
+    .accountProposals(account.id, ['proposed'])
+    .filter((p) => !p.needsReview && account.policy.allowedClasses.includes(p.actionClass))
+    .slice(0, account.policy.maxActionsPerRun);
   for (const p of eligible) {
     try {
       authorizeProposal(store, account, p.id, 'policy', now);
@@ -679,11 +727,9 @@ export async function runBrain(
     }
   }
   const authorized = store
-    .proposals(account.dataset, 2000)
-    .filter(
-      (p) =>
-        p.accountId === account.id && p.status === 'authorized' && p.authorization?.by === 'policy',
-    );
+    .accountProposals(account.id, ['authorized'])
+    .filter((p) => p.authorization?.by === 'policy')
+    .slice(0, account.policy.maxActionsPerRun);
   for (const p of authorized) {
     try {
       const outcome = await executeProposal(store, account, connector, p.id, now);
@@ -707,6 +753,4 @@ export const openProposalCount = (
   store: Store,
   dataset: AdAccount['dataset'],
   campaignId: string,
-) =>
-  store.proposals(dataset, 2000).filter((p) => p.campaignId === campaignId && isOpen(p.status))
-    .length;
+) => store.proposalCount(dataset, campaignId, OPEN_STATUSES);

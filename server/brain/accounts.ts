@@ -8,6 +8,7 @@ import type { Connector } from '../connectors/connector.js';
 import { SandboxConnector, sandboxSpec, type SandboxState } from '../connectors/sandbox.js';
 import { AmazonAdsConnector, amazonConfigFromEnv } from '../connectors/amazon.js';
 import { dayAt } from '../engine.js';
+import { SqliteReportCache, syncPlan } from './report-jobs.js';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -85,6 +86,7 @@ export function createAccount(
   store: Store,
   input: z.infer<typeof accountInput>,
   now = new Date(),
+  verifiedProfile?: Awaited<ReturnType<AmazonAdsConnector['listProfiles']>>[number],
 ): AdAccount {
   if (store.accounts(input.dataset).length >= 20)
     throw new AppError('This local release supports 20 connected accounts per workspace.');
@@ -95,6 +97,23 @@ export function createAccount(
     );
   if (input.connector === 'amazon-ads' && ![1, 7, 14, 30].includes(input.attributionDays))
     throw new AppError('Amazon Ads reporting supports 1, 7, 14, or 30 day attribution.');
+  if (
+    input.connector === 'amazon-ads' &&
+    (input.dataset !== 'workspace' ||
+      !verifiedProfile ||
+      verifiedProfile.profileId !== input.profileId ||
+      verifiedProfile.currencyCode !== 'USD')
+  )
+    throw new AppError(
+      'Live accounts require a verified USD Amazon Ads profile in Your workspace.',
+    );
+  if (
+    input.connector === 'amazon-ads' &&
+    store
+      .accounts(input.dataset)
+      .some((a) => a.connector === input.connector && a.profileId === input.profileId)
+  )
+    throw new AppError('This profile is already registered. Reuse its existing account.');
   const account: AdAccount = {
     id: randomUUID(),
     dataset: input.dataset,
@@ -102,11 +121,22 @@ export function createAccount(
     connector: input.connector,
     name: input.name,
     profileId: input.profileId,
-    marketplace: input.marketplace,
+    marketplace: verifiedProfile?.countryCode || input.marketplace,
     currency: 'USD',
-    timezone: 'UTC',
+    timezone: verifiedProfile?.timezone || 'UTC',
+    ...(verifiedProfile
+      ? {
+          region: amazonConfigFromEnv(input.profileId)!.region,
+          verifiedAt: now.toISOString(),
+          accountType: verifiedProfile.accountInfo.type,
+        }
+      : {}),
     attributionDays: input.attributionDays,
-    policy: defaultPolicy({ mode: input.connector === 'sandbox' ? 'supervised' : 'observe' }),
+    policy: defaultPolicy({
+      mode: input.connector === 'sandbox' ? 'supervised' : 'observe',
+      // Live search terms stay local until the operator explicitly enables AI review.
+      aiReview: input.connector === 'sandbox',
+    }),
     health: {
       status: 'never',
       message: 'Not synchronized yet.',
@@ -173,7 +203,23 @@ export function connectorFor(store: Store, account: AdAccount, now = new Date())
   }
   const config = amazonConfigFromEnv(account.profileId);
   if (!config) throw new AppError('Amazon Ads credentials are not configured on the server.', 503);
-  return new AmazonAdsConnector(config);
+  if (account.region && config.region !== account.region)
+    throw new AppError(
+      'The server region changed. Restore the account’s registered region before synchronizing.',
+    );
+  if (!account.verifiedAt || !account.region)
+    throw new AppError(
+      'Verify the Amazon Ads profile and its timezone before using this connection.',
+    );
+  const plan = syncPlan(store, account, now);
+  return new AmazonAdsConnector(
+    { ...config, timezone: account.timezone },
+    fetch,
+    Date.now,
+    undefined,
+    new SqliteReportCache(store, account.id),
+    plan.generation,
+  );
 }
 
 function syntheticHistory(seed: string, now: Date) {

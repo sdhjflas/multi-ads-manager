@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { mkdir } from 'node:fs/promises';
+import { bookHeaders } from '../server/books';
 
 test('navigates both portfolios, searches campaigns, and exports a summary', async ({ page }) => {
   const errors: string[] = [];
@@ -484,4 +485,72 @@ test('runs the brain on the simulated account: authorize, execute, read back, an
   await page.getByRole('button', { name: 'Run brain' }).click();
   await expect(page.getByRole('status')).toContainText('Sync ok');
   expect(errors).toEqual([]);
+});
+
+test('imports book formats, reviews economics, and keeps the portfolio usable on mobile', async ({
+  page,
+}) => {
+  await page.goto('/#portfolio');
+  await expect(
+    page.getByRole('heading', { name: 'Give every book a path to profit.' }),
+  ).toBeVisible();
+  await expect(page.locator('.book-table tbody tr')).toHaveCount(3);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: '.artifacts/books-desktop.png', fullPage: true });
+
+  const account = await page.request.post('/api/brain/accounts', {
+    headers: { 'X-Orbit-Request': '1' },
+    data: {
+      dataset: 'workspace',
+      name: 'Catalog test publisher',
+      connector: 'sandbox',
+      profileId: 'catalog-test',
+      marketplace: 'US',
+      attributionDays: 14,
+    },
+  });
+  expect(account.status()).toBe(201);
+  await page.getByLabel('Data workspace').selectOption('workspace');
+  await page.getByRole('button', { name: 'Import catalog', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Advertising account').selectOption((await account.json()).id);
+  const csv = [
+    bookHeaders.join(','),
+    'B000001111,,Workflow catalog paperback,Example,paperback,2000,900,300,100,10000,3000,false,true',
+    'B000002222,,Workflow catalog ebook,Example,ebook,1000,650,50,100,5000,2000,true,true',
+  ].join('\n');
+  await dialog.getByLabel('Or paste catalog CSV').fill(csv);
+  await dialog.getByRole('button', { name: 'Import formats', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('2 book formats added');
+  await expect(page.locator('.book-table tbody tr')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Workflow catalog paperback', exact: true }).click();
+  await expect(dialog).toContainText('Verify net receipts and costs');
+  await dialog.getByRole('button', { name: 'Edit economics' }).click();
+  await dialog
+    .getByRole('checkbox', { name: 'I verified the net receipts and costs for this format.' })
+    .check();
+  await dialog.getByLabel('Net receipts / unit ($)', { exact: true }).fill('9.50');
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await dialog.getByRole('button', { name: 'Save book', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Book economics saved');
+  const search = page.getByLabel('Search campaigns and experiments');
+  await search.fill('paperback');
+  await expect(search).toHaveValue('paperback');
+  await expect(page.locator('.book-table tbody tr')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Workflow catalog paperback', exact: true }).click();
+  await expect(dialog).toContainText('$9.50');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: '.artifacts/books-mobile.png', fullPage: true });
 });

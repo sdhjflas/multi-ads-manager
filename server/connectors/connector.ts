@@ -14,7 +14,14 @@ import type {
  * applies exact, previewed changes. Connectors never decide anything.
  */
 export type ConnectorErrorKind =
-  'auth' | 'throttled' | 'timeout' | 'invalid' | 'unavailable' | 'ambiguous' | 'unsupported';
+  | 'auth'
+  | 'throttled'
+  | 'timeout'
+  | 'invalid'
+  | 'unavailable'
+  | 'ambiguous'
+  | 'unsupported'
+  | 'pending';
 
 export class ConnectorError extends Error {
   constructor(
@@ -26,7 +33,7 @@ export class ConnectorError extends Error {
   }
 }
 
-export type ReportKind = 'campaign' | 'keyword' | 'searchTerm';
+export type ReportKind = 'campaign' | 'keyword' | 'searchTerm' | 'advertisedProduct';
 
 export interface ReportRow {
   date: string;
@@ -41,6 +48,12 @@ export interface ReportRow {
   costCents: number;
   purchases: number;
   salesCents: number;
+  observedAt?: string;
+  advertisedAsin?: string;
+  adExternalId?: string;
+  sameSkuPurchases?: number;
+  sameSkuUnits?: number;
+  sameSkuSalesCents?: number;
 }
 
 export type MutationResult =

@@ -1,0 +1,168 @@
+.books-page {
+  display: grid;
+  gap: 22px;
+}
+.book-toolbar,
+.book-actions,
+.book-pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.book-toolbar,
+.book-pagination {
+  justify-content: space-between;
+}
+.book-toolbar p {
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
+.book-filter-row {
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.book-actions label {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+  color: #59635f;
+}
+.book-actions select {
+  max-width: 220px;
+  border: 1px solid #dce1dd;
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #303c35;
+  background: white;
+}
+.book-count {
+  color: #7a857e;
+  font-size: 12px;
+  margin-left: 6px;
+}
+.book-table-scroll {
+  overflow-x: auto;
+}
+.book-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.book-table th {
+  padding: 13px 18px;
+  color: #66736c;
+  font-size: 10px;
+  font-weight: 600;
+  background: #f8faf7;
+  white-space: nowrap;
+}
+.book-table td {
+  padding: 18px;
+  border-top: 1px solid #edf0eb;
+  vertical-align: middle;
+}
+.book-table tr:hover td {
+  background: #fbfcf9;
+}
+.book-table td:first-child {
+  min-width: 240px;
+  max-width: 350px;
+}
+.book-title {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: #233d30;
+  text-align: left;
+  cursor: pointer;
+}
+.book-title:hover {
+  text-decoration: underline;
+}
+.book-meta {
+  display: block;
+  color: #5f6b63;
+  font-size: 10px;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.book-pagination {
+  padding: 15px 20px;
+  border-top: 1px solid #edf0eb;
+  color: #68746c;
+  font-size: 12px;
+}
+.book-method {
+  color: #5f6b63;
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 0;
+  max-width: 1080px;
+}
+.book-notice {
+  background: #edf5e6;
+  border: 1px solid #d4e5c6;
+  padding: 14px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+.book-check {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.book-check input {
+  width: auto;
+}
+.book-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 22px;
+  margin: 10px 0;
+}
+.book-detail-grid dt {
+  color: #768278;
+  font-size: 11px;
+  margin-bottom: 7px;
+}
+.book-detail-grid dd {
+  margin: 0;
+  color: #233d30;
+  font-size: 18px;
+  font-weight: 600;
+}
+.book-link {
+  border-top: 1px solid #e4e9e0;
+  padding-top: 20px;
+}
+.book-link h3 {
+  margin: 0;
+}
+.amazon-job-list {
+  display: grid;
+  gap: 14px;
+}
+.amazon-job {
+  border: 1px solid #e0e6db;
+  border-radius: 9px;
+  padding: 16px;
+}
+.amazon-job p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 800px) {
+  .book-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .book-toolbar {
+    align-items: flex-start;
+  }
+  .book-filter-row .book-actions {
+    width: 100%;
+  }
+}

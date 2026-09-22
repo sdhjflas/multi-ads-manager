@@ -119,6 +119,12 @@ export function createSource(store: Store, input: z.infer<typeof sourceInput>): 
   );
   for (const mapping of input.mappings) {
     const c = store.campaign(input.dataset, mapping.campaignId);
+    if (store.links().some((l) => l.campaignId === c.id))
+      throw new AppError(
+        'This campaign receives API reporting. Use a separate campaign for file-based report sources.',
+      );
+    if ((c.reportingTimezone || 'UTC') !== input.timezone)
+      throw new AppError('Campaign and source reporting timezones must match.');
     if (
       c.channel !== input.provider ||
       c.currency !== input.currency ||

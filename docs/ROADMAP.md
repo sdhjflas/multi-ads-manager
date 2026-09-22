@@ -44,25 +44,28 @@ The following milestones describe remaining production work.
 
 See [Reporting hub](REPORTING.md). Live OAuth, automated collection, native Meta/TikTok and Amazon target/search-term adapters, and production client authorization remain in the following milestones.
 
-## Milestone 0.4 — implemented brain
+## Milestone 0.4 — implemented brain and book portfolio
 
 - Connector contract with classified errors; a simulated account that supports every read and write, and an Amazon Ads Sponsored Products v3 adapter (token refresh, paginated lists, async reports, keyword/negative/budget writes).
-- Account synchronization with trailing-window re-pulls, explicit zero fills, coverage counts, health states, and a watermark.
+- Verified profile discovery with marketplace, currency, timezone, account type, and region identity.
+- Restart-safe Reporting v3 jobs split into 31-day requests, long restatement refreshes, exact contract validation, bounded S3 downloads, pending health, and a success-only watermark.
+- Daily campaign, keyword, search-term, and advertised-product ingestion. Live reports retain missing cells as missing evidence rather than fabricated zeros.
 - Search-term ingestion at the term/keyword/day grain; keyword cells reuse the target tables.
 - Policy engine: negative, harvest, bid-up, bid-down, pause, budget-up, and budget-down proposals with expected prior state, commitment, idempotency key, cooldown, per-run cap, and open-wave hold.
 - Operating modes (observe, recommend, supervised, bounded), versioned policy envelope, daily commitment reservation, outbox execution, platform read-back, uncertain-result reconciliation, and a kill switch.
 - AI relevance review of harvest and negative candidates, proposal explanations, and provider-agnostic idea generation (Claude default, OpenAI supported), cached and reservation-limited.
 - Business ledger import and scorecards that show ledger contribution beside attributed sales.
-- Background cycle for workspace accounts, browser journey, and regression coverage for drift, envelope, kill switch, and lost responses.
+- Bulk book catalog and individual format editor with same-ASIN units, net-receipt economics, fixed 56-day loss allowances, daily budget ceilings, ASIN/campaign reconciliation, and mixed-title automation holds.
+- Background and pending-report cycles, browser journeys, 500-title scale coverage, and regression coverage for restarts, throttling, timezones, partial data, drift, envelopes, policy changes, kill switch, and lost responses.
 
-See [The brain](BRAIN.md). Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, product-target and placement actions, and a live supervised pilot.
+See [The brain](BRAIN.md) and [Amazon API contract](AMAZON_API.md). Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, product-target and placement actions, independent receipt/royalty reconciliation, and a live supervised pilot.
 
 ## Milestone 1 — connected observation, two equal tracks
 
 | Product track                                             | Amazon books track                                                            |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Authorized Meta account discovery and Insights collection | Amazon Ads API application and approved access                                |
-| Shopify scoped order/refund/inventory adapter             | Advertiser OAuth, marketplace/profile discovery                               |
+| Authorized Meta account discovery and Insights collection | Confirm existing Amazon Ads API approval and authorize a pilot advertiser     |
+| Shopify scoped order/refund/inventory adapter             | Advertiser OAuth consent flow and production token storage                    |
 | Enthusiast registry and creative-ID mappings              | Daily campaign, target, search-term, and placement report contracts           |
 | Product release gates and stock readiness                 | PBS book/ASIN/format/publisher mappings and availability                      |
 | Independent order contribution reconciliation             | Contract-specific net receipts, costs, returns, and settlement reconciliation |
@@ -111,7 +114,7 @@ Select one commerce account and one book advertiser, with a small number of read
 
 These do not block the local foundation already delivered:
 
-1. An authorized Amazon Ads application/account onboarding path and one representative console export per relevant report type.
+1. Confirmation that the partner's connection is approved Amazon Ads API access, where its server configuration lives, and one test advertiser profile authorized for observe-only validation.
 2. One pilot publisher/title/format with actual net receipts, print/variable costs, return assumptions, and a learning allowance.
 3. One ready Enthusiast SKU with verified costs, stock/fulfillment, approved creative evidence, and Meta account authorization.
 4. The deployment target and operator/client access model before exposing this local tool on a network.
