@@ -1,6 +1,76 @@
 export type Vertical = 'commerce' | 'books';
 export type Dataset = 'demo' | 'workspace';
 export type Channel = 'meta' | 'amazon' | 'tiktok';
+
+export interface ReportSource {
+  id: string;
+  dataset: Dataset;
+  name: string;
+  provider: Channel;
+  accountRef: string;
+  profile: 'orbit-campaigns' | 'orbit-targets' | 'amazon-campaigns';
+  attributionDays: number;
+  currency: 'USD';
+  timezone: 'UTC';
+  mappings: { externalCampaignId: string; campaignId: string }[];
+  contractId: string;
+  createdAt: string;
+}
+
+export interface ReportChangeCounts {
+  inserted: number;
+  corrected: number;
+  refreshed: number;
+  unchanged: number;
+}
+
+export interface ReportPreview {
+  fingerprint: string;
+  counts: ReportChangeCounts;
+  rows: number;
+  campaignCount: number;
+  targetCount: number;
+  spendCents: number;
+  campaignSpendDeltaCents: number | null;
+  startDate: string;
+  endDate: string;
+  errors: string[];
+  warnings: string[];
+  affectedLearningIds: string[];
+  campaigns: {
+    campaignId: string;
+    name: string;
+    rowCount: number;
+    targetCount: number;
+    counts: ReportChangeCounts;
+    missingDays: number;
+    spendCents: number;
+  }[];
+}
+
+export interface ReportReceipt {
+  id: string;
+  dataset: Dataset;
+  sourceId: string;
+  sourceName: string;
+  fileName: string;
+  exportedAt: string;
+  createdAt: string;
+  committedAt?: string;
+  status: 'staged' | 'committed' | 'discarded';
+  contentHash: string;
+  sourceContractId: string;
+  preview: ReportPreview;
+}
+
+export interface ReportRevision {
+  campaignId: string;
+  targetId: string | null;
+  label: string;
+  date: string;
+  before: Observation | null;
+  after: Observation;
+}
 export type DecisionKind = 'scale' | 'reduce' | 'explore' | 'hold' | 'repair';
 
 export interface Campaign {

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Compass,
+  Database,
   Download,
   ExternalLink,
   FileUp,
@@ -63,6 +64,7 @@ import {
 import { api, channelName, date, money, number, percent, timeAgo } from './lib';
 import { TargetExplorer, TargetDetail } from './TargetExplorer';
 import { WaveBoard, WaveDetail, WaveForm, LearningLibrary } from './Waves';
+import { ReportingHub } from './Reporting';
 
 type Page =
   | 'overview'
@@ -73,6 +75,7 @@ type Page =
   | 'waves'
   | 'learning'
   | 'intelligence'
+  | 'reporting'
   | 'connections'
   | 'activity'
   | 'blueprint';
@@ -102,6 +105,7 @@ const nav: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'learning', label: 'Learning library', icon: <BookOpen size={18} /> },
   { id: 'targets', label: 'Target explorer', icon: <Target size={18} /> },
   { id: 'intelligence', label: 'Intelligence', icon: <Sparkles size={18} /> },
+  { id: 'reporting', label: 'Reporting hub', icon: <Database size={18} /> },
   { id: 'connections', label: 'Connections', icon: <Unplug size={18} /> },
   { id: 'activity', label: 'Activity log', icon: <History size={18} /> },
   { id: 'blueprint', label: 'The blueprint', icon: <Network size={18} /> },
@@ -151,6 +155,11 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
     eyebrow: 'YOUR CONNECTED WORKSPACE',
     title: 'Bring the right signals together.',
     subtitle: 'Prepare your ad accounts, business data, and optional AI provider.',
+  },
+  reporting: {
+    eyebrow: 'THE EVIDENCE INBOX',
+    title: 'Reliable reports. Traceable decisions.',
+    subtitle: 'Bring campaign and target reports together, with every correction accounted for.',
   },
   activity: {
     eyebrow: 'THE WORKSPACE JOURNAL',
@@ -325,7 +334,7 @@ export function App() {
         <nav aria-label="Main navigation">
           {nav.map((item) => (
             <div key={item.id}>
-              {item.id === 'connections' && <div className="nav-caption second">WORKSPACE</div>}
+              {item.id === 'reporting' && <div className="nav-caption second">WORKSPACE</div>}
               <button
                 className={`nav-item ${page === item.id ? 'active' : ''}`}
                 aria-current={page === item.id ? 'page' : undefined}
@@ -909,6 +918,14 @@ export function App() {
                   onFollowUp={(learningId) => setModal({ type: 'experiment', learningId })}
                 />
               )}
+              {page === 'reporting' && (
+                <ReportingHub
+                  data={data}
+                  query={query}
+                  onWorkspace={() => setDataset('workspace')}
+                  onCampaign={() => setModal({ type: 'campaign' })}
+                />
+              )}
               {page === 'intelligence' && (
                 <>
                   <div className="intelligence-banner">
@@ -1088,12 +1105,12 @@ export function App() {
                     <div>
                       <h3>Your reports can start the learning.</h3>
                       <p>
-                        Import a normalized CSV or a supported Amazon daily campaign export while
-                        API access is being prepared.
+                        Map your reporting sources and preview campaign or target batches while API
+                        access is being prepared.
                       </p>
                     </div>
-                    <button className="button primary" onClick={showImport}>
-                      Import a report
+                    <button className="button primary" onClick={() => navigate('reporting')}>
+                      Open Reporting hub
                       <ArrowRight size={15} />
                     </button>
                   </div>
@@ -1151,7 +1168,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.2<span className="footer-dot">·</span>Local advisory mode
+              Orbit v0.3<span className="footer-dot">·</span>Local advisory mode
               <ShieldCheck size={12} />
             </span>
           </footer>

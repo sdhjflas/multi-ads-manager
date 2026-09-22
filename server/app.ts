@@ -19,6 +19,7 @@ import { importTemplate, parseImport } from './importer.js';
 import { createExperiment, planVariants } from './planner.js';
 import { getLearningViews, getWaveViews, holdForOpenWave } from './waves.js';
 import { waveRoutes } from './wave-routes.js';
+import { reportRoutes } from './report-routes.js';
 import {
   AppError,
   campaignInput,
@@ -201,14 +202,18 @@ export function createApp(store: Store) {
     const input = campaignInput.parse(req.body);
     const existing = store.campaign(input.dataset, String(req.params.id));
     if (
-      store.observations(existing.id).length &&
+      (store.observations(existing.id).length ||
+        store.targets(existing.id).length ||
+        store.db
+          .prepare('SELECT 1 FROM report_bindings WHERE campaign_id=? LIMIT 1')
+          .get(existing.id)) &&
       (input.vertical !== existing.vertical ||
         input.channel !== existing.channel ||
         input.attributionDays !== existing.attributionDays ||
         input.entityName !== existing.entityName)
     ) {
       throw new AppError(
-        'The item, channel, and attribution contract are fixed after importing. Create a separate campaign for a changed definition.',
+        'The item, channel, and attribution contract are fixed after importing or registering reporting IDs. Create a separate campaign for a changed definition.',
       );
     }
     const updated = { ...existing, ...input };
@@ -233,13 +238,18 @@ export function createApp(store: Store) {
     const campaign = store.campaign(input.dataset, input.campaignId);
     const rows = parseImport(input, campaign);
     store.transaction(() => {
-      store.importRows(rows);
+      const refunds = new Map(store.observations(campaign.id).map((r) => [r.date, r.refundsCents]));
+      store.importRows(
+        input.format === 'amazon'
+          ? rows.map((r) => ({ ...r, refundsCents: refunds.get(r.date) || 0 }))
+          : rows,
+      );
       if (campaign.status === 'draft') store.saveCampaign({ ...campaign, status: 'observing' });
       store.activity(
         input.dataset,
         'import',
         'Performance report imported',
-        `${rows.length} daily rows for ${campaign.name}. Overlapping dates replaced, not added.${input.format === 'amazon' ? ' Amazon exports exclude net-receipt refund adjustments; reconcile using the normalized template.' : ''}`,
+        `${rows.length} daily rows for ${campaign.name}. Overlapping dates replaced, not added.${input.format === 'amazon' ? ' Amazon exports exclude net-receipt refund adjustments; existing corrections are preserved. Reconcile new returns using the normalized template.' : ''}`,
       );
     });
     res.status(201).json({ rows: rows.length, campaignId: campaign.id });
@@ -420,6 +430,7 @@ export function createApp(store: Store) {
   });
 
   waveRoutes(app, store);
+  reportRoutes(app, store);
 
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);

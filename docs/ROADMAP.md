@@ -32,6 +32,18 @@ See [the workflow](EXPERIMENTS.md). This shared work advances part of Milestone 
 
 The following milestones describe remaining production work.
 
+## Milestone 0.3 — implemented reporting hub
+
+- Saved account/report contracts and explicit campaign mappings for both portfolios.
+- Multi-campaign and target/creative CSV batches with staged row comparisons.
+- Atomic application, duplicate protection, stale-preview conflicts, and old-export rejection.
+- Immutable applied receipts and paginated before/after observation revisions.
+- Correction overlap with the learning library and separate target/campaign accounting.
+- Preserved publisher refund adjustments and retained spend on zero-click product days.
+- Browser workflows, accessibility checks, and transaction/correction regression coverage.
+
+See [Reporting hub](REPORTING.md). Live OAuth, automated collection, native Meta/TikTok and Amazon target/search-term adapters, and production client authorization remain in the following milestones.
+
 ## Milestone 1 — connected observation, two equal tracks
 
 | Product track                                             | Amazon books track                                                            |

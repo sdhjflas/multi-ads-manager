@@ -1,6 +1,6 @@
 # Performance import contract
 
-The first release supports **one campaign, one item/format, one fixed click-attribution window, USD, UTC, and one row per completed reporting day**. Select **Your workspace** before importing. Demo records cannot receive business reports.
+Each campaign uses **one item/format, one fixed click-attribution window, USD, UTC, and one row per completed reporting day**. Select **Your workspace** before importing. Demo records cannot receive business reports. Single-campaign forms remain available; the [Reporting hub](REPORTING.md) adds saved account mappings, multi-campaign batch previews, atomic application, and row correction history.
 
 ## Normalized CSV
 
@@ -24,7 +24,7 @@ The dates are examples; use your actual completed reporting dates.
 | `sales_cents`   | Attributed retail sales in integer USD cents, not publisher royalties                                  |
 | `refunds_cents` | Reduction to the operator's net receipts in integer USD cents, not the consumer's retail refund amount |
 
-All seven fields are required. Blank numeric cells, negative/fractional values, duplicate column names, extra normalized columns, personal-data columns, inconsistent funnels, duplicate dates, and invalid dates are rejected. Explicit zero rows represent no delivery; absent rows represent missing evidence. Per-field counts/money are capped at 100,000,000 units to bound malformed input.
+All seven fields are required. Blank numeric cells, negative/fractional values, duplicate column names, extra normalized columns, personal-data columns, inconsistent funnels, duplicate dates, and invalid dates are rejected. Positive spend with zero clicks is accepted: impression-based costs must remain in contribution calculations. Explicit all-zero rows represent no delivery; absent rows represent missing evidence. Per-field counts/money are capped at 100,000,000 units to bound malformed input.
 
 Do not combine placement, keyword, ad group, creative, or format breakdowns into repeated campaign/day rows. Aggregate at the documented grain first. If the platform's conversion counts do not match the one-purchase-per-converting-click model, do not force them into this schema: a suitable model and import adapter are required.
 
@@ -43,13 +43,13 @@ A seven-day campaign uses `7 Day Total Orders (#)` and `7 Day Total Sales` inste
 
 This is an explicit supported profile, not a claim that every Amazon console export has these headers. New report products and revised metric names may differ. If your export differs, map it deliberately into the normalized template. Account timezone, attribution window, report basis, and purchase definition must actually match; selecting an attestation does not convert the file.
 
-The console profile does not contain publisher net-receipt refund adjustments, so they initialize to zero and an import note records that limitation. Reconcile using the normalized template before interpreting estimated contribution as an economic result. Re-importing an unadjusted console report replaces that day's prior observations, including refund adjustments: keep your reconciliation workflow explicit.
+The console profile does not contain publisher net-receipt refund adjustments. New days initialize to zero; console re-exports preserve existing refund adjustments on overlapping days. This applies to both the single-campaign importer and Reporting hub. Reconcile new returns using normalized campaign data before interpreting estimated contribution as an economic result; a console refresh does not prove that no new refunds occurred.
 
 ## Updates and source identity
 
 The database key is `(campaign_id, date)`. Importing a refreshed report replaces overlapping rows. It never adds a second copy. The entire import is transactional. If one row would replace a newer export with an older one, the whole import is rejected.
 
-The campaign's item, channel, vertical, and click window cannot change after importing observations. Create a separate campaign for a changed definition. Unit economics are explicit static assumptions for the entire reporting period in this release; editing them recomputes the model and changes the evidence fingerprint. Effective-dated costs and an independently reconciled ledger are planned.
+The campaign's item, channel, vertical, and click window cannot change after importing observations or registering target IDs or a saved source. Create a separate campaign for a changed definition. Unit economics are explicit static assumptions for the entire reporting period in this release; editing them recomputes the model and changes the evidence fingerprint. Effective-dated costs and an independently reconciled ledger are planned.
 
 An export can contain at most 2,000 daily rows and 1 MB of CSV, covering the last two years. The API body limit is 2 MB. This local tool stores only aggregates. It is not a place for names, emails, IP addresses, session IDs, or order-level records.
 

@@ -36,6 +36,7 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 | Separate demo and business data | Synthetic demo seeded automatically; **Your workspace** starts empty                                                                                |
 | Campaign setup                  | Book/product identity, channel, click window, net receipts, variable costs, profit reserve, planning limits, readiness attestations                 |
 | Performance ingestion           | Normalized daily CSV and a documented English Amazon campaign-export profile; atomic upserts, freshness and contract validation                     |
+| Reporting hub                   | Saved account mappings, portfolio batch previews, row comparisons, duplicate protection, atomic application, and before/after correction history    |
 | Experiment lab                  | Up to 300 distinct template candidates, optional AI ideas, bounded shortlist waves, persistence, candidate CSV export                               |
 | Test waves                      | Frozen candidate/report mappings, baseline comparisons, maturity gates, local budget reservations, loss boundaries, and console setup sheets        |
 | Learning library                | Immutable findings, correction-aware revisions, searchable notes, and evidence-linked follow-up drafts                                              |
@@ -50,9 +51,9 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 ## First real workflow
 
 1. Select **Your workspace** in the sidebar.
-2. Add a campaign. For an Amazon import, use the exact exported campaign name. Use one title/format or product with stable per-purchase economics.
+2. Add a campaign for each title/format or product with stable per-purchase economics. The Reporting hub maps its local name to an external ID or exact Amazon export name.
 3. Verify the reporting contract and costs. Unverified items can be saved, but do not receive scaling recommendations.
-4. Import complete daily reports. Include explicit zero rows for no-delivery days and refresh the trailing attribution window. See [the import contract](docs/IMPORTS.md).
+4. Open **Reporting hub**, save the source mappings, and preview/apply a daily report across your campaigns. Include explicit zero rows for no-delivery days and refresh the trailing attribution window. See [the reporting workflow](docs/REPORTING.md) and [the import contract](docs/IMPORTS.md).
 5. Inspect a campaign's unit economics and mature evidence. Recommendations are observational screening signals, not verified business profit.
 6. Build an experiment, shortlist a small wave, and export the candidate library for review.
 7. Record the recommendation decision. Manage actual advertising in the platform console until a separately tested execution integration exists.
@@ -87,6 +88,7 @@ src/                  React dashboard and operator workflows
 shared/               Typed browser/server contracts
 server/engine.ts      Unit economics, attribution maturity, bounded posterior calculation
 server/importer.ts    Explicit normalized and Amazon report mappings
+server/reports.ts     Saved source contracts, reviewed batches, and observation revisions
 server/store.ts       Transactional local persistence and AI request reservations
 server/planner.ts     Distinct candidate generation and experiment plans
 server/waves.ts       Frozen plans, conditional comparisons, and learning revisions
@@ -97,6 +99,7 @@ docs/RESEARCH.md       Local project findings and primary-source research
 docs/ARCHITECTURE.md   Production architecture, optimizer design, and data boundaries
 docs/ROADMAP.md        Equal-track delivery plan and measurable gates
 docs/IMPORTS.md        Supported report contract and limitations
+docs/REPORTING.md      Portfolio batch workflow, source contracts, and correction history
 docs/EXPERIMENTS.md    Measurement workflow, budget accounting, and evidence boundaries
 ```
 

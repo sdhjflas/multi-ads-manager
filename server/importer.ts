@@ -129,13 +129,9 @@ export function parseImport(
       refundsCents: isAmazon ? 0 : whole(r.refunds_cents, `${label} refunds_cents`),
       observedAt: input.exportedAt,
     };
-    if (
-      result.clicks > result.impressions ||
-      result.orders > result.clicks ||
-      (result.spendCents > 0 && result.clicks === 0)
-    )
+    if (result.clicks > result.impressions || result.orders > result.clicks)
       throw new AppError(
-        `${label}: inconsistent funnel. This model supports click-attributed purchase events, not units, views, or CPM campaigns.`,
+        `${label}: inconsistent funnel. This model supports at most one click-attributed purchase event per click, not units or view-attributed outcomes.`,
       );
     return result;
   });

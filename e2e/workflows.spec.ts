@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { mkdir } from 'node:fs/promises';
 
 test('navigates both portfolios, searches campaigns, and exports a summary', async ({ page }) => {
   const errors: string[] = [];
@@ -281,4 +282,159 @@ test('test and learning pages remain accessible and fit a mobile viewport', asyn
     (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
       .violations,
   ).toEqual([]);
+});
+
+test('maps a portfolio source, previews and applies corrections, and retains its audit history', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const ids: string[] = [];
+  for (const name of ['Report book One', 'Report book Two']) {
+    const created = await page.request.post('/api/campaigns', {
+      headers: { 'X-Orbit-Request': '1' },
+      data: {
+        dataset: 'workspace',
+        name,
+        vertical: 'books',
+        channel: 'amazon',
+        entityName: `${name} paperback`,
+        accountName: 'Synthetic reporting client',
+        retailPriceCents: 2000,
+        netReceiptCents: 1000,
+        variableCostCents: 400,
+        targetProfitCents: 100,
+        dailyBudgetCents: 3000,
+        totalLearningBudgetCents: 500000,
+        attributionDays: 14,
+        economicsVerified: true,
+        trackingVerified: true,
+        supplyReady: true,
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    ids.push((await created.json()).id);
+  }
+  await page.goto('/#reporting');
+  await page.getByRole('button', { name: 'Open your reporting workspace' }).click();
+  await page.getByRole('button', { name: 'Add report source', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Source name', { exact: true }).fill('Publisher daily reporting');
+  await dialog.getByLabel('Account reference', { exact: true }).fill('browser-books');
+  for (const name of ['Report book One', 'Report book Two'])
+    await dialog.getByRole('checkbox', { name, exact: true }).check();
+  await dialog.getByRole('checkbox', { name: /^I verified the account/ }).check();
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await dialog.getByRole('button', { name: 'Save report source', exact: true }).click();
+  await expect(
+    dialog.getByRole('heading', { name: 'Publisher daily reporting', exact: true }),
+  ).toBeVisible();
+  const download = page.waitForEvent('download');
+  await dialog.getByRole('link', { name: 'Download template' }).click();
+  expect((await download).suggestedFilename()).toBe('orbit-amazon-campaigns-template.csv');
+  await dialog.getByRole('button', { name: 'Stage a report', exact: true }).click();
+  const now = new Date();
+  const day = new Date(now.getTime() - 3 * 86400000).toISOString().slice(0, 10);
+  const local = (time: number) =>
+    new Date(time - new Date(time).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const report = `Date,Campaign Name,Impressions,Clicks,Spend,14 Day Total Orders (#),14 Day Total Sales\n${day},Report book One,1000,100,3.00,5,100.00\n${day},Report book Two,2000,200,6.00,10,200.00`;
+  await dialog.getByLabel('Report label', { exact: true }).fill('publisher-daily.csv');
+  await dialog.getByLabel('Or paste the report CSV').fill(report);
+  await dialog
+    .getByLabel('Actual export time (your local time)')
+    .fill(local(now.getTime() - 600000));
+  await dialog.getByRole('checkbox', { name: /^I checked the actual export/ }).check();
+  await dialog.getByRole('button', { name: 'Preview report', exact: true }).click();
+  await expect(dialog).toContainText('Proposed row changes');
+  await expect(dialog.locator('.revision-list details')).toHaveCount(2);
+  let dashboard = await (await page.request.get('/api/dashboard?dataset=workspace')).json();
+  expect(
+    dashboard.campaigns
+      .filter((c: { id: string }) => ids.includes(c.id))
+      .every((c: { metrics: { spendCents: number } }) => c.metrics.spendCents === 0),
+  ).toBe(true);
+  await dialog.locator('.revision-list summary').first().click();
+  await expect(dialog.locator('.revision-values').first()).toContainText('Ad spend');
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await mkdir('.artifacts', { recursive: true });
+  await page.screenshot({ path: '.artifacts/report-preview-desktop.png', fullPage: true });
+  await dialog.getByRole('button', { name: 'Apply report batch', exact: true }).click();
+  await expect(dialog).toContainText('Before and after');
+  await expect(
+    dialog.getByRole('button', { name: 'Apply report batch', exact: true }),
+  ).not.toBeVisible();
+  await page.keyboard.press('Escape');
+  await page
+    .locator('.report-source-card')
+    .filter({ hasText: 'Publisher daily reporting' })
+    .getByRole('button', { name: 'Stage CSV' })
+    .click();
+  await dialog.getByLabel('Report label', { exact: true }).fill('publisher-correction.csv');
+  await dialog.getByLabel('Or paste the report CSV').fill(report.replace('3.00,5', '3.50,5'));
+  await dialog
+    .getByLabel('Actual export time (your local time)')
+    .fill(local(now.getTime() - 300000));
+  await dialog.getByRole('checkbox', { name: /^I checked the actual export/ }).check();
+  await dialog.getByRole('button', { name: 'Preview report', exact: true }).click();
+  await expect(
+    dialog.locator('.report-counts > div').filter({ hasText: 'Corrections' }).locator('strong'),
+  ).toHaveText('1');
+  await expect(dialog.locator('.revision-list details')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Apply report batch', exact: true }).click();
+  await expect(dialog).toContainText('Before and after');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await page.getByLabel('Data workspace').selectOption('workspace');
+  await expect(page.locator('.report-history tbody tr')).toHaveCount(2);
+  await page.screenshot({ path: '.artifacts/reporting-desktop.png', fullPage: true });
+  await page
+    .getByRole('button', { name: /publisher-correction.csv Publisher daily reporting/ })
+    .click();
+  await expect(dialog.locator('.revision-list details')).toHaveCount(2);
+  await dialog.locator('.revision-list summary').first().click();
+  await expect(dialog.locator('.revision-values').first()).toContainText('$3.00 → $3.50');
+  dashboard = await (await page.request.get('/api/dashboard?dataset=workspace')).json();
+  expect(dashboard.campaigns.find((c: { id: string }) => c.id === ids[0]).metrics.spendCents).toBe(
+    350,
+  );
+  expect(errors).toEqual([]);
+});
+
+test('reporting workspace and revision details are accessible on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#reporting');
+  await expect(
+    page.getByRole('heading', { name: 'Bring the whole portfolio into view.' }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.getByRole('button', { name: 'Open your reporting workspace' }).click();
+  await expect(page.locator('.report-source-card').first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: '.artifacts/reporting-mobile.png', fullPage: true });
+  await page
+    .getByRole('button', { name: /publisher-correction.csv Publisher daily reporting/ })
+    .click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('.revision-list details')).toHaveCount(2);
+  await dialog.locator('.revision-list summary').first().click();
+  expect(await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: '.artifacts/report-revision-mobile.png', fullPage: true });
 });

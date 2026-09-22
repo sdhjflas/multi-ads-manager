@@ -45,7 +45,24 @@ export class Store {
         target_id TEXT NOT NULL REFERENCES targets(id), date TEXT NOT NULL,
         observed_at TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(target_id,date)
       );
-      PRAGMA user_version = 3;
+      CREATE TABLE IF NOT EXISTS report_sources (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS report_bindings (
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id), grain TEXT NOT NULL,
+        source_id TEXT NOT NULL REFERENCES report_sources(id), external_id TEXT NOT NULL,
+        PRIMARY KEY(campaign_id,grain)
+      );
+      CREATE TABLE IF NOT EXISTS report_batches (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES report_sources(id),
+        dedupe_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, body TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS report_batches_scope ON report_batches(dataset,created_at);
+      CREATE TABLE IF NOT EXISTS report_revisions (
+        batch_id TEXT NOT NULL REFERENCES report_batches(id), position INTEGER NOT NULL,
+        body TEXT NOT NULL, PRIMARY KEY(batch_id,position)
+      );
+      PRAGMA user_version = 4;
     `);
   }
   transaction<T>(fn: () => T): T {
