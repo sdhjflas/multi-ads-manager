@@ -159,6 +159,10 @@ The implemented target explorer applies these observational gates to imported ke
 
 Version 0.2 adds operator-declared links from shortlisted candidates to measured IDs through immutable test waves. A fixed window, copied economics, baseline, maturity checks, conditional comparison bands, and local reservations govern each wave. Recorded findings retain evidence snapshots and revisions and can seed another draft with provenance. This is observational measurement. [The workflow and model](EXPERIMENTS.md) describes the implemented boundaries.
 
+### Implemented in 0.4
+
+[The brain](BRAIN.md) implements the loop below the campaign screen: connector contract, account sync with health and watermarks, search-term cells, a deterministic proposal policy with seven action classes, versioned operating policies, daily commitment reservation, an execution outbox with expected-prior-state revalidation, read-back, uncertain-result reconciliation, and a kill switch. Search-term relevance review and proposal explanation run through a structured-output AI boundary that has no tools and cannot authorize anything. The simulated connector exercises the whole loop without credentials; the Amazon adapter covers Sponsored Products keyword campaigns.
+
 ## 6. Production execution and authority
 
 Use staged operating modes scoped to each account:

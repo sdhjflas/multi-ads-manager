@@ -3,12 +3,20 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
+  AccountLink,
   Activity,
+  AdAccount,
   Campaign,
   Dataset,
+  ExecutionAttempt,
   Experiment,
+  LedgerEntry,
   Observation,
+  PlatformSnapshot,
+  Proposal,
   Review,
+  SearchTerm,
+  SyncRun,
   Target,
   TestWave,
   Learning,
@@ -62,7 +70,52 @@ export class Store {
         batch_id TEXT NOT NULL REFERENCES report_batches(id), position INTEGER NOT NULL,
         body TEXT NOT NULL, PRIMARY KEY(batch_id,position)
       );
-      PRAGMA user_version = 4;
+      CREATE TABLE IF NOT EXISTS accounts (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS account_links (
+        campaign_id TEXT PRIMARY KEY REFERENCES campaigns(id),
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        external_campaign_id TEXT NOT NULL, ad_group_external_id TEXT NOT NULL,
+        UNIQUE(account_id, external_campaign_id)
+      );
+      CREATE TABLE IF NOT EXISTS platform_snapshots (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id), body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS sandbox_state (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id), body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS search_terms (
+        id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL REFERENCES campaigns(id), body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS search_terms_campaign ON search_terms(campaign_id);
+      CREATE TABLE IF NOT EXISTS search_term_observations (
+        term_id TEXT NOT NULL REFERENCES search_terms(id), date TEXT NOT NULL,
+        observed_at TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(term_id,date)
+      );
+      CREATE TABLE IF NOT EXISTS proposals (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id),
+        campaign_id TEXT NOT NULL, status TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS proposals_scope ON proposals(dataset,status,created_at);
+      CREATE TABLE IF NOT EXISTS execution_attempts (
+        id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL REFERENCES proposals(id),
+        dataset TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS sync_runs (
+        id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),
+        dataset TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS ledger_entries (
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id), date TEXT NOT NULL,
+        body TEXT NOT NULL, PRIMARY KEY(campaign_id,date)
+      );
+      CREATE TABLE IF NOT EXISTS ai_reviews (
+        key TEXT PRIMARY KEY, dataset TEXT NOT NULL, kind TEXT NOT NULL,
+        created_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      PRAGMA user_version = 5;
     `);
   }
   transaction<T>(fn: () => T): T {
@@ -229,6 +282,209 @@ export class Store {
         .run(id, day, now);
       return id;
     });
+  }
+  // ---- The brain -----------------------------------------------------------
+
+  accounts(dataset: Dataset): AdAccount[] {
+    return (
+      this.db.prepare('SELECT body FROM accounts WHERE dataset=? ORDER BY id').all(dataset) as {
+        body: string;
+      }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  account(dataset: Dataset, id: string): AdAccount {
+    const row = this.db
+      .prepare('SELECT body FROM accounts WHERE dataset=? AND id=?')
+      .get(dataset, id) as { body: string } | undefined;
+    if (!row) throw new AppError('Ad account not found in this workspace.', 404);
+    return JSON.parse(row.body);
+  }
+  saveAccount(account: AdAccount) {
+    this.db
+      .prepare(
+        'INSERT INTO accounts(id,dataset,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body',
+      )
+      .run(account.id, account.dataset, JSON.stringify(account));
+  }
+  links(accountId?: string): AccountLink[] {
+    const rows = (
+      accountId
+        ? this.db
+            .prepare('SELECT * FROM account_links WHERE account_id=? ORDER BY campaign_id')
+            .all(accountId)
+        : this.db.prepare('SELECT * FROM account_links ORDER BY campaign_id').all()
+    ) as {
+      campaign_id: string;
+      account_id: string;
+      external_campaign_id: string;
+      ad_group_external_id: string;
+    }[];
+    return rows.map((r) => ({
+      campaignId: r.campaign_id,
+      accountId: r.account_id,
+      externalCampaignId: r.external_campaign_id,
+      adGroupExternalId: r.ad_group_external_id,
+    }));
+  }
+  saveLink(link: AccountLink) {
+    this.db
+      .prepare(
+        'INSERT INTO account_links(campaign_id,account_id,external_campaign_id,ad_group_external_id) VALUES(?,?,?,?) ON CONFLICT(campaign_id) DO UPDATE SET account_id=excluded.account_id, external_campaign_id=excluded.external_campaign_id, ad_group_external_id=excluded.ad_group_external_id',
+      )
+      .run(link.campaignId, link.accountId, link.externalCampaignId, link.adGroupExternalId);
+  }
+  snapshot(accountId: string): PlatformSnapshot | null {
+    const row = this.db
+      .prepare('SELECT body FROM platform_snapshots WHERE account_id=?')
+      .get(accountId) as { body: string } | undefined;
+    return row ? JSON.parse(row.body) : null;
+  }
+  saveSnapshot(accountId: string, snapshot: PlatformSnapshot) {
+    this.db
+      .prepare(
+        'INSERT INTO platform_snapshots(account_id,body) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET body=excluded.body',
+      )
+      .run(accountId, JSON.stringify(snapshot));
+  }
+  sandboxState<T>(accountId: string): T | null {
+    const row = this.db
+      .prepare('SELECT body FROM sandbox_state WHERE account_id=?')
+      .get(accountId) as { body: string } | undefined;
+    return row ? JSON.parse(row.body) : null;
+  }
+  saveSandboxState(accountId: string, state: unknown) {
+    this.db
+      .prepare(
+        'INSERT INTO sandbox_state(account_id,body) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET body=excluded.body',
+      )
+      .run(accountId, JSON.stringify(state));
+  }
+  searchTerms(campaignId: string): SearchTerm[] {
+    return (
+      this.db
+        .prepare('SELECT body FROM search_terms WHERE campaign_id=? ORDER BY id')
+        .all(campaignId) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  searchTermRows(termId: string): Observation[] {
+    return (
+      this.db
+        .prepare('SELECT body FROM search_term_observations WHERE term_id=? ORDER BY date')
+        .all(termId) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  importSearchTerms(entries: { term: SearchTerm; rows: Observation[] }[]) {
+    const put = this.db.prepare(
+      'INSERT INTO search_terms(id,campaign_id,body) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING',
+    );
+    const prior = this.db.prepare(
+      'SELECT observed_at FROM search_term_observations WHERE term_id=? AND date=?',
+    );
+    const rowPut = this.db.prepare(
+      'INSERT INTO search_term_observations(term_id,date,observed_at,body) VALUES(?,?,?,?) ON CONFLICT(term_id,date) DO UPDATE SET observed_at=excluded.observed_at,body=excluded.body',
+    );
+    for (const { term, rows } of entries) {
+      put.run(term.id, term.campaignId, JSON.stringify(term));
+      for (const row of rows) {
+        const previous = prior.get(term.id, row.date) as { observed_at: string } | undefined;
+        if (previous && Date.parse(previous.observed_at) > Date.parse(row.observedAt)) continue;
+        rowPut.run(term.id, row.date, row.observedAt, JSON.stringify(row));
+      }
+    }
+  }
+  proposals(dataset: Dataset, limit = 500): Proposal[] {
+    return (
+      this.db
+        .prepare('SELECT body FROM proposals WHERE dataset=? ORDER BY created_at DESC LIMIT ?')
+        .all(dataset, limit) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  proposal(dataset: Dataset, id: string): Proposal {
+    const row = this.db
+      .prepare('SELECT body FROM proposals WHERE dataset=? AND id=?')
+      .get(dataset, id) as { body: string } | undefined;
+    if (!row) throw new AppError('Proposal not found in this workspace.', 404);
+    return JSON.parse(row.body);
+  }
+  proposalByKey(key: string): Proposal | null {
+    const row = this.db.prepare('SELECT body FROM proposals WHERE idempotency_key=?').get(key) as
+      { body: string } | undefined;
+    return row ? JSON.parse(row.body) : null;
+  }
+  saveProposal(p: Proposal) {
+    this.db
+      .prepare(
+        'INSERT INTO proposals(id,dataset,account_id,campaign_id,status,idempotency_key,created_at,body) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, body=excluded.body',
+      )
+      .run(
+        p.id,
+        p.dataset,
+        p.accountId,
+        p.campaignId,
+        p.status,
+        p.idempotencyKey,
+        p.createdAt,
+        JSON.stringify(p),
+      );
+  }
+  executions(dataset: Dataset, limit = 200): ExecutionAttempt[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT body FROM execution_attempts WHERE dataset=? ORDER BY created_at DESC LIMIT ?',
+        )
+        .all(dataset, limit) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  saveExecution(attempt: ExecutionAttempt) {
+    this.db
+      .prepare(
+        'INSERT INTO execution_attempts(id,proposal_id,dataset,created_at,body) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body',
+      )
+      .run(
+        attempt.id,
+        attempt.proposalId,
+        attempt.dataset,
+        attempt.startedAt,
+        JSON.stringify(attempt),
+      );
+  }
+  syncRuns(dataset: Dataset, limit = 50): SyncRun[] {
+    return (
+      this.db
+        .prepare('SELECT body FROM sync_runs WHERE dataset=? ORDER BY created_at DESC LIMIT ?')
+        .all(dataset, limit) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  saveSyncRun(run: SyncRun) {
+    this.db
+      .prepare('INSERT INTO sync_runs(id,account_id,dataset,created_at,body) VALUES(?,?,?,?,?)')
+      .run(run.id, run.accountId, run.dataset, run.startedAt, JSON.stringify(run));
+  }
+  ledger(campaignId: string): LedgerEntry[] {
+    return (
+      this.db
+        .prepare('SELECT body FROM ledger_entries WHERE campaign_id=? ORDER BY date')
+        .all(campaignId) as { body: string }[]
+    ).map((r) => JSON.parse(r.body));
+  }
+  importLedger(rows: LedgerEntry[]) {
+    const put = this.db.prepare(
+      'INSERT INTO ledger_entries(campaign_id,date,body) VALUES(?,?,?) ON CONFLICT(campaign_id,date) DO UPDATE SET body=excluded.body',
+    );
+    for (const row of rows) put.run(row.campaignId, row.date, JSON.stringify(row));
+  }
+  aiReview<T>(key: string): T | null {
+    const row = this.db.prepare('SELECT body FROM ai_reviews WHERE key=?').get(key) as
+      { body: string } | undefined;
+    return row ? JSON.parse(row.body) : null;
+  }
+  saveAiReview(key: string, dataset: Dataset, kind: string, value: unknown) {
+    this.db
+      .prepare(
+        'INSERT INTO ai_reviews(key,dataset,kind,created_at,body) VALUES(?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET body=excluded.body',
+      )
+      .run(key, dataset, kind, new Date().toISOString(), JSON.stringify(value));
   }
   close() {
     this.db.close();

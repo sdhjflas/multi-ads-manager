@@ -13,7 +13,10 @@ import type {
   TestWave,
 } from '../shared/types.js';
 import { Store } from './store.js';
-import { aiConfig, generateIdeas } from './ai.js';
+import { aiProvider, aiStatus } from './ai/provider.js';
+import { generateIdeas } from './ai/tasks.js';
+import { brainRoutes } from './brain/routes.js';
+import { amazonConfigured } from './connectors/amazon.js';
 import { campaignView, dayAt, decide, metrics, sumMetrics } from './engine.js';
 import { importTemplate, parseImport } from './importer.js';
 import { createExperiment, planVariants } from './planner.js';
@@ -76,7 +79,11 @@ export function createApp(store: Store) {
   });
   app.use(express.json({ limit: '2mb' }));
   app.get('/api/health', (_req, res) =>
-    res.json({ status: 'ok', mode: 'local-advisory', platformWritesEnabled: false }),
+    res.json({
+      status: 'ok',
+      mode: 'local-operator',
+      platformWritesEnabled: process.env.AMAZON_ADS_WRITES_ENABLED === 'true',
+    }),
   );
 
   app.get('/api/dashboard', (req, res) => {
@@ -89,7 +96,7 @@ export function createApp(store: Store) {
       .filter((c) => vertical === 'all' || c.vertical === vertical);
     const items = campaigns.map((c) => ({ c, rows: store.observations(c.id) }));
     const ids = new Set(campaigns.map((c) => c.id));
-    const config = aiConfig();
+    const config = aiStatus();
     const waves = getWaveViews(store, dataset).filter((w) => ids.has(w.campaignId));
     const views = items.map(({ c, rows }) => {
       const view = campaignView(c, rows, days, now);
@@ -152,7 +159,19 @@ export function createApp(store: Store) {
           salesCents: total.salesCents,
         };
       }),
-      ai: { ...config, requestsToday: store.aiRequests() },
+      ai: {
+        configured: config.provider !== null,
+        dailyLimit: config.dailyLimit,
+        requestsToday: store.aiRequests(),
+      },
+      integrations: {
+        amazonAds: {
+          configured: amazonConfigured(),
+          writesEnabled: process.env.AMAZON_ADS_WRITES_ENABLED === 'true',
+        },
+        anthropic: config.anthropic,
+        openai: config.openai,
+      },
     };
     res.json(result);
   });
@@ -314,34 +333,33 @@ export function createApp(store: Store) {
     )
       throw new AppError('The source target does not belong to this campaign.');
     createExperiment(input, campaign, planVariants(input));
-    if (input.provider === 'openai') {
-      const config = aiConfig();
-      if (!config.configured)
+    const provider = input.provider === 'ai' ? aiProvider() : null;
+    if (input.provider === 'ai') {
+      if (!provider)
         throw new AppError('The AI provider has not been configured on the server.', 503);
       if (input.count > 24)
         throw new AppError(
           'AI requests support 2–24 ideas. Use the structured planner for up to 300.',
         );
-      store.reserveAi(config.dailyLimit);
+      store.reserveAi(aiStatus().dailyLimit);
     }
-    const variants =
-      input.provider === 'openai'
-        ? await generateIdeas(
-            input,
-            campaign,
-            fetch,
-            learning
-              ? {
-                  id: learning.id,
-                  hypothesis: learning.hypothesis,
-                  outcome: learning.result.outcome,
-                  finding: learning.result.reason,
-                  notes: learning.notes,
-                  candidate: learning.promisingCandidate?.value ?? null,
-                }
-              : undefined,
-          )
-        : planVariants(input);
+    const variants = provider
+      ? await generateIdeas(
+          provider,
+          input,
+          campaign,
+          learning
+            ? {
+                id: learning.id,
+                hypothesis: learning.hypothesis,
+                outcome: learning.result.outcome,
+                finding: learning.result.reason,
+                notes: learning.notes,
+                candidate: learning.promisingCandidate?.value ?? null,
+              }
+            : undefined,
+        )
+      : planVariants(input);
     const experiment = createExperiment(input, campaign, variants);
     store.transaction(() => {
       store.putRecord('experiment', experiment);
@@ -431,6 +449,7 @@ export function createApp(store: Store) {
 
   waveRoutes(app, store);
   reportRoutes(app, store);
+  brainRoutes(app, store);
 
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);

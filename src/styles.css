@@ -1775,6 +1775,11 @@ textarea::placeholder {
   color: #606959;
   border-color: #e7ebe1;
 }
+.integration-mark.anthropic {
+  background: #f6efe6;
+  color: #7a5a3a;
+  border-color: #eddfcf;
+}
 .integration-mark.pbs {
   background: #f3edf9;
   color: #715e7e;

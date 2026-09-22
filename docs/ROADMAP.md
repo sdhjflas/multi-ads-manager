@@ -44,6 +44,19 @@ The following milestones describe remaining production work.
 
 See [Reporting hub](REPORTING.md). Live OAuth, automated collection, native Meta/TikTok and Amazon target/search-term adapters, and production client authorization remain in the following milestones.
 
+## Milestone 0.4 — implemented brain
+
+- Connector contract with classified errors; a simulated account that supports every read and write, and an Amazon Ads Sponsored Products v3 adapter (token refresh, paginated lists, async reports, keyword/negative/budget writes).
+- Account synchronization with trailing-window re-pulls, explicit zero fills, coverage counts, health states, and a watermark.
+- Search-term ingestion at the term/keyword/day grain; keyword cells reuse the target tables.
+- Policy engine: negative, harvest, bid-up, bid-down, pause, budget-up, and budget-down proposals with expected prior state, commitment, idempotency key, cooldown, per-run cap, and open-wave hold.
+- Operating modes (observe, recommend, supervised, bounded), versioned policy envelope, daily commitment reservation, outbox execution, platform read-back, uncertain-result reconciliation, and a kill switch.
+- AI relevance review of harvest and negative candidates, proposal explanations, and provider-agnostic idea generation (Claude default, OpenAI supported), cached and reservation-limited.
+- Business ledger import and scorecards that show ledger contribution beside attributed sales.
+- Background cycle for workspace accounts, browser journey, and regression coverage for drift, envelope, kill switch, and lost responses.
+
+See [The brain](BRAIN.md). Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, product-target and placement actions, and a live supervised pilot.
+
 ## Milestone 1 — connected observation, two equal tracks
 
 | Product track                                             | Amazon books track                                                            |

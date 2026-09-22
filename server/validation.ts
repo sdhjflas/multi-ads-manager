@@ -21,6 +21,7 @@ export const campaignInput = z
     economicsVerified: z.boolean(),
     trackingVerified: z.boolean(),
     supplyReady: z.boolean(),
+    brief: z.string().trim().max(1200).optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -54,7 +55,7 @@ export const experimentInput = z
     count: z.number().int().min(2).max(300),
     budgetCents: cents.positive(),
     maxConcurrent: z.number().int().min(1).max(10),
-    provider: z.enum(['structured-planner', 'openai']),
+    provider: z.enum(['structured-planner', 'ai']),
     sourceTargetId: z
       .string()
       .regex(/^[a-f0-9]{64}$/)

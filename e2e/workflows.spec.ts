@@ -137,7 +137,7 @@ test('mobile layout contains overflow and offers usable navigation and setup gui
     .getByRole('button', { name: 'View setup guide' })
     .click();
   await expect(page.getByRole('dialog')).toContainText(
-    'Pathway currently uses the advertising console',
+    'A simulated account is available without credentials',
   );
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).not.toBeVisible();
@@ -437,4 +437,51 @@ test('reporting workspace and revision details are accessible on mobile', async 
       .violations,
   ).toEqual([]);
   await page.screenshot({ path: '.artifacts/report-revision-mobile.png', fullPage: true });
+});
+
+test('runs the brain on the simulated account: authorize, execute, read back, and kill switch', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/#brain');
+  await expect(
+    page.getByRole('heading', { name: 'The brain behind the campaigns.' }),
+  ).toBeVisible();
+  await expect(page.getByText('Sample publisher · simulated Amazon Ads')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Campaign scorecard' })).toContainText(
+    'A Wilder Kind of Home',
+  );
+  const proposals = page.getByRole('table', { name: 'Proposed changes' });
+  await expect(proposals.locator('tbody tr').first()).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Search terms' })).toContainText(
+    'free nature wallpapers',
+  );
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await mkdir('.artifacts', { recursive: true });
+  await page.screenshot({ path: '.artifacts/brain-desktop.png', fullPage: true });
+  const row = proposals.locator('tbody tr').filter({ hasText: 'Negative keyword' }).first();
+  await row.getByRole('button', { name: 'Authorize' }).click();
+  await expect(page.getByRole('status')).toContainText('Change authorized');
+  await row.getByRole('button', { name: 'Execute' }).click();
+  await expect(page.getByRole('status')).toContainText('applied');
+  await page.getByLabel('Filter proposals by status').selectOption('applied');
+  await expect(proposals.locator('tbody tr').first()).toContainText('applied');
+  await expect(
+    page.getByText('Platform read-back confirms the change.', { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel('Filter proposals by status').selectOption('open');
+  await proposals.locator('tbody tr').first().getByRole('button', { name: 'Authorize' }).click();
+  await page.getByRole('button', { name: 'Kill switch', exact: true }).click();
+  await expect(page.getByText('Kill switch on')).toBeVisible();
+  await page.getByLabel('Filter proposals by status').selectOption('cancelled');
+  await expect(proposals.locator('tbody tr').first()).toContainText('cancelled');
+  await page.getByRole('button', { name: 'Release kill switch' }).click();
+  await expect(page.getByText('Kill switch on')).not.toBeVisible();
+  await page.getByRole('button', { name: 'Run brain' }).click();
+  await expect(page.getByRole('status')).toContainText('Sync ok');
+  expect(errors).toEqual([]);
 });

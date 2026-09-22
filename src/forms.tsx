@@ -81,6 +81,7 @@ export function CampaignForm({
         economicsVerified: f.get('economicsVerified') === 'on',
         trackingVerified: f.get('trackingVerified') === 'on',
         supplyReady: f.get('supplyReady') === 'on',
+        ...(String(f.get('brief') || '').trim() ? { brief: String(f.get('brief')).trim() } : {}),
       };
       await api(
         existing ? `/campaigns/${existing.id}/setup` : '/campaigns',
@@ -223,6 +224,23 @@ export function CampaignForm({
           </label>
         ))}
       </div>
+      <label>
+        Item description for AI review (optional)
+        <textarea
+          name="brief"
+          rows={3}
+          maxLength={1200}
+          defaultValue={existing?.brief}
+          placeholder={
+            books
+              ? 'Subject, audience, and format, e.g. literary nature essays for readers of contemplative nonfiction; paperback.'
+              : 'What the product is and who it is for.'
+          }
+        />
+        <span className="form-help">
+          Used only as untrusted context when the AI reviews search-term relevance or drafts ideas.
+        </span>
+      </label>
       <div className="checklist">
         <label>
           <input
@@ -352,7 +370,7 @@ export function ExperimentForm({
         <div className="learning-source">
           <strong>Building on: {sourceLearning.waveName}</strong>
           {sourceLearning.result.title}. This new experiment keeps a link to the recorded evidence.
-          {provider === 'openai' &&
+          {provider === 'ai' &&
             ' The saved finding and your notes will be included in the AI request.'}
         </div>
       )}
@@ -438,12 +456,16 @@ export function ExperimentForm({
             value={provider}
             onChange={(e) => {
               setProvider(e.target.value);
-              if (e.target.value === 'openai') setCount(Math.min(count, 24));
+              if (e.target.value === 'ai') setCount(Math.min(count, 24));
             }}
           >
             <option value="structured-planner">Structured planner · no API cost</option>
-            <option value="openai" disabled={!data.ai.configured}>
-              OpenAI
+            <option value="ai" disabled={!data.ai.configured}>
+              {data.integrations.anthropic
+                ? 'Claude'
+                : data.integrations.openai
+                  ? 'OpenAI'
+                  : 'AI provider'}
               {data.ai.configured
                 ? ` · ${data.ai.dailyLimit - data.ai.requestsToday} requests left today`
                 : ' · configure in Connections'}
@@ -478,7 +500,7 @@ export function ExperimentForm({
           <input
             type="number"
             min="2"
-            max={provider === 'openai' ? '24' : '300'}
+            max={provider === 'ai' ? '24' : '300'}
             value={count}
             onChange={(e) => setCount(Number(e.target.value))}
             required
@@ -524,9 +546,7 @@ export function ExperimentForm({
       <ErrorMessage error={error} />
       <div className="form-footer">
         <span>Creates a draft. No ads launched.</span>
-        <Submit busy={busy}>
-          {provider === 'openai' ? 'Generate AI draft' : 'Build experiment'}
-        </Submit>
+        <Submit busy={busy}>{provider === 'ai' ? 'Generate AI draft' : 'Build experiment'}</Submit>
       </div>
     </form>
   );
@@ -954,9 +974,7 @@ export function ExperimentDetail({
         </div>
       </div>
       <p className="form-help">
-        {experiment.provider === 'openai'
-          ? 'AI-generated hypotheses'
-          : 'Template-generated hypotheses'}{' '}
+        {experiment.provider === 'ai' ? 'AI-generated hypotheses' : 'Template-generated hypotheses'}{' '}
         · candidate library. Register a measurement wave to link the shortlist to reporting IDs and
         a local planning reservation. Confirm a promising result in a controlled experiment before
         broader scaling.
@@ -982,7 +1000,7 @@ export const connections = [
     ],
     link: 'https://advertising.amazon.com/about-api',
     linkText: 'Amazon Ads API application',
-    note: 'Pathway currently uses the advertising console. Daily CSV reporting is available in this build; OAuth and API synchronization are planned.',
+    note: 'The brain synchronizes campaigns, keywords, negatives, and daily campaign, keyword, and search-term reports through the Sponsored Products v3 APIs, and can apply reviewed keyword, bid, and budget changes when AMAZON_ADS_WRITES_ENABLED=true. Set the client, secret, and refresh token on the server, then connect a profile on The brain page. A simulated account is available without credentials.',
   },
   {
     id: 'meta',
@@ -1039,6 +1057,25 @@ export const connections = [
     note: 'PBS HQ’s existing SP-API authorization does not grant Amazon Ads API access. No private PBS data is included in this build.',
   },
   {
+    id: 'anthropic',
+    name: 'Claude (Anthropic)',
+    letter: 'A',
+    className: 'anthropic',
+    category: 'ADVERTISING INTELLIGENCE',
+    description:
+      'Search-term relevance review, proposal explanations, and structured experiment ideas.',
+    status: 'Recommended provider',
+    steps: [
+      'Set ANTHROPIC_API_KEY in the server .env file. Optionally set ANTHROPIC_MODEL (default claude-opus-5).',
+      'Set AI_DAILY_REQUEST_LIMIT to your preferred request allowance and restart the server.',
+      'Enable AI review in an account operating policy so harvest and negative candidates are screened for relevance.',
+      'Use Explain with AI on proposals and Review relevance on search terms. Model output never authorizes platform actions.',
+    ],
+    link: 'https://platform.claude.com/docs/en/build-with-claude/structured-outputs',
+    linkText: 'Claude structured outputs',
+    note: 'Requests use schema-constrained structured outputs with no tools. Reviews are cached by content hash so repeated runs do not spend again. The request allowance is not a dollar cap.',
+  },
+  {
     id: 'openai',
     name: 'OpenAI',
     letter: '✳',
@@ -1092,6 +1129,19 @@ export function ConnectionDetail({ id }: { id: string }) {
           </li>
         ))}
       </ol>
+      {id === 'anthropic' && (
+        <pre className="env-example">
+          ANTHROPIC_API_KEY=your-server-key{'\n'}ANTHROPIC_MODEL=claude-opus-5{'\n'}
+          AI_DAILY_REQUEST_LIMIT=5
+        </pre>
+      )}
+      {id === 'amazon' && (
+        <pre className="env-example">
+          AMAZON_ADS_CLIENT_ID=your-client-id{'\n'}AMAZON_ADS_CLIENT_SECRET=your-secret{'\n'}
+          AMAZON_ADS_REFRESH_TOKEN=your-refresh-token{'\n'}AMAZON_ADS_REGION=NA{'\n'}
+          AMAZON_ADS_WRITES_ENABLED=false
+        </pre>
+      )}
       {id === 'openai' && (
         <pre className="env-example">
           OPENAI_API_KEY=your-server-key{'\n'}OPENAI_MODEL=your-selected-model{'\n'}

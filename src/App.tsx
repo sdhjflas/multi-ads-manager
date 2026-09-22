@@ -8,6 +8,7 @@ import {
   Bell,
   BookOpen,
   Boxes,
+  BrainCircuit,
   CalendarDays,
   ChartNoAxesCombined,
   Check,
@@ -65,6 +66,7 @@ import { api, channelName, date, money, number, percent, timeAgo } from './lib';
 import { TargetExplorer, TargetDetail } from './TargetExplorer';
 import { WaveBoard, WaveDetail, WaveForm, LearningLibrary } from './Waves';
 import { ReportingHub } from './Reporting';
+import { BrainPage } from './Brain';
 
 type Page =
   | 'overview'
@@ -75,6 +77,7 @@ type Page =
   | 'waves'
   | 'learning'
   | 'intelligence'
+  | 'brain'
   | 'reporting'
   | 'connections'
   | 'activity'
@@ -105,6 +108,7 @@ const nav: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'learning', label: 'Learning library', icon: <BookOpen size={18} /> },
   { id: 'targets', label: 'Target explorer', icon: <Target size={18} /> },
   { id: 'intelligence', label: 'Intelligence', icon: <Sparkles size={18} /> },
+  { id: 'brain', label: 'The brain', icon: <BrainCircuit size={18} /> },
   { id: 'reporting', label: 'Reporting hub', icon: <Database size={18} /> },
   { id: 'connections', label: 'Connections', icon: <Unplug size={18} /> },
   { id: 'activity', label: 'Activity log', icon: <History size={18} /> },
@@ -150,6 +154,12 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
     eyebrow: 'EVIDENCE INTO ACTION',
     title: 'Every next move needs a reason.',
     subtitle: 'Review the evidence behind each recommendation before changing your campaigns.',
+  },
+  brain: {
+    eyebrow: 'SYNC · EVALUATE · AUTHORIZE · EXECUTE · READ BACK',
+    title: 'The brain behind the campaigns.',
+    subtitle:
+      'Live platform state, every search term measured against your economics, and exact changes you can authorize or automate within limits.',
   },
   connections: {
     eyebrow: 'YOUR CONNECTED WORKSPACE',
@@ -918,6 +928,15 @@ export function App() {
                   onFollowUp={(learningId) => setModal({ type: 'experiment', learningId })}
                 />
               )}
+              {page === 'brain' && (
+                <BrainPage
+                  data={data}
+                  query={query}
+                  days={days}
+                  onWorkspace={() => setDataset('workspace')}
+                  onCampaign={() => setModal({ type: 'campaign' })}
+                />
+              )}
               {page === 'reporting' && (
                 <ReportingHub
                   data={data}
@@ -1057,7 +1076,12 @@ export function App() {
                 <>
                   <div className="connections-status">
                     <span>
-                      <i className="dot amber" />0 live ad accounts connected
+                      <i
+                        className={`dot ${data.integrations.amazonAds.configured ? 'green' : 'amber'}`}
+                      />
+                      {data.integrations.amazonAds.configured
+                        ? 'Amazon Ads credentials configured'
+                        : 'No live ad credentials · sandbox available'}
                     </span>
                     <span>
                       <FileUp size={15} />
@@ -1078,11 +1102,23 @@ export function App() {
                           <div className="connection-top">
                             <span className={`integration-mark ${c.className}`}>{c.letter}</span>
                             <Badge
-                              kind={c.id === 'openai' && data.ai.configured ? 'scale' : 'neutral'}
+                              kind={
+                                (c.id === 'openai' && data.integrations.openai) ||
+                                (c.id === 'anthropic' && data.integrations.anthropic) ||
+                                (c.id === 'amazon' && data.integrations.amazonAds.configured)
+                                  ? 'scale'
+                                  : 'neutral'
+                              }
                             >
-                              {c.id === 'openai' && data.ai.configured
+                              {c.id === 'openai' && data.integrations.openai
                                 ? 'Configured · unverified'
-                                : c.status}
+                                : c.id === 'anthropic' && data.integrations.anthropic
+                                  ? 'Configured · unverified'
+                                  : c.id === 'amazon' && data.integrations.amazonAds.configured
+                                    ? data.integrations.amazonAds.writesEnabled
+                                      ? 'Credentials set · writes enabled'
+                                      : 'Credentials set · read-only'
+                                    : c.status}
                             </Badge>
                           </div>
                           <span className="eyebrow">{c.category}</span>

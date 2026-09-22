@@ -93,6 +93,8 @@ export interface Campaign {
   economicsVerified: boolean;
   trackingVerified: boolean;
   supplyReady: boolean;
+  /** Operator-written description of the item, used as untrusted AI context. */
+  brief?: string;
   createdAt: string;
 }
 
@@ -164,7 +166,7 @@ export interface Experiment {
   budgetCents: number;
   maxConcurrent: number;
   status: 'draft' | 'review';
-  provider: 'structured-planner' | 'openai';
+  provider: 'structured-planner' | 'ai';
   variants: Variant[];
   createdAt: string;
   sourceTargetId?: string;
@@ -333,4 +335,303 @@ export interface Dashboard {
     salesCents: number;
   }[];
   ai: { configured: boolean; dailyLimit: number; requestsToday: number };
+  integrations: {
+    amazonAds: { configured: boolean; writesEnabled: boolean };
+    anthropic: boolean;
+    openai: boolean;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The brain: connected accounts, platform state, search terms, proposals,
+// execution, and the business ledger.
+// ---------------------------------------------------------------------------
+
+export type ConnectorKind = 'sandbox' | 'amazon-ads';
+export type OperatingMode = 'observe' | 'recommend' | 'supervised' | 'bounded';
+export type ActionClass =
+  'harvest' | 'negative' | 'bid-up' | 'bid-down' | 'pause' | 'budget-up' | 'budget-down';
+export const actionClasses: ActionClass[] = [
+  'harvest',
+  'negative',
+  'bid-up',
+  'bid-down',
+  'pause',
+  'budget-up',
+  'budget-down',
+];
+
+export interface Policy {
+  version: string;
+  mode: OperatingMode;
+  killSwitch: boolean;
+  autoSync: boolean;
+  aiReview: boolean;
+  /** Action classes a bounded policy may authorize without an operator. */
+  allowedClasses: ActionClass[];
+  maxBidCents: number;
+  maxBidStepPct: number;
+  maxDailyBudgetCents: number;
+  maxBudgetStepPct: number;
+  /** Additional daily exposure that reserved and applied actions may add per UTC day. */
+  maxDailyCommitmentCents: number;
+  cooldownHours: number;
+  maxActionsPerRun: number;
+  maxEvidenceAgeHours: number;
+  harvestMinClicks: number;
+  harvestMinOrders: number;
+  negativeMinClicks: number;
+  negativeMaxProbability: number;
+  bidMinClicks: number;
+}
+
+export type SyncStatus = 'never' | 'ok' | 'partial' | 'stale' | 'throttled' | 'error';
+export interface SyncHealth {
+  status: SyncStatus;
+  message: string;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  watermarkDate: string | null;
+  coverage: { campaigns: number; keywords: number; negatives: number; searchTerms: number };
+}
+
+export interface AdAccount {
+  id: string;
+  dataset: Dataset;
+  provider: Channel;
+  connector: ConnectorKind;
+  name: string;
+  profileId: string;
+  marketplace: string;
+  currency: 'USD';
+  timezone: 'UTC';
+  attributionDays: number;
+  policy: Policy;
+  health: SyncHealth;
+  createdAt: string;
+}
+
+export interface AccountLink {
+  campaignId: string;
+  accountId: string;
+  externalCampaignId: string;
+  adGroupExternalId: string;
+}
+
+export type PlatformState = 'enabled' | 'paused' | 'archived';
+export interface PlatformCampaign {
+  externalId: string;
+  name: string;
+  state: PlatformState;
+  dailyBudgetCents: number;
+  targetingType: 'auto' | 'manual';
+}
+export interface PlatformAdGroup {
+  externalId: string;
+  campaignExternalId: string;
+  name: string;
+  state: PlatformState;
+  defaultBidCents: number;
+}
+export type KeywordMatch = 'exact' | 'phrase' | 'broad';
+export interface PlatformKeyword {
+  externalId: string;
+  campaignExternalId: string;
+  adGroupExternalId: string;
+  text: string;
+  matchType: KeywordMatch;
+  state: PlatformState;
+  bidCents: number;
+}
+export type NegativeMatch = 'negative-exact' | 'negative-phrase';
+export interface PlatformNegativeKeyword {
+  externalId: string;
+  campaignExternalId: string;
+  adGroupExternalId: string | null;
+  text: string;
+  matchType: NegativeMatch;
+  state: PlatformState;
+}
+export interface PlatformSnapshot {
+  observedAt: string;
+  campaigns: PlatformCampaign[];
+  adGroups: PlatformAdGroup[];
+  keywords: PlatformKeyword[];
+  negatives: PlatformNegativeKeyword[];
+}
+
+export interface SearchTerm {
+  id: string;
+  campaignId: string;
+  term: string;
+  keywordExternalId: string;
+  keywordText: string;
+  matchType: KeywordMatch | 'auto';
+  adGroupExternalId: string;
+}
+export type TermSignal = 'harvest' | 'negative' | 'hold' | 'blocked' | 'already-exact';
+export type Relevance = 'high' | 'medium' | 'low' | 'irrelevant';
+export interface SearchTermView extends SearchTerm {
+  campaignName: string;
+  metrics: Metrics;
+  mature: { clicks: number; orders: number; spendCents: number; salesCents: number };
+  probabilityProfitable: number | null;
+  affordableCpcCents: number | null;
+  signal: TermSignal;
+  reason: string;
+  relevance: { level: Relevance; reason: string } | null;
+}
+
+export type ProposalAction =
+  | {
+      type: 'create-keyword';
+      adGroupExternalId: string;
+      keywordText: string;
+      matchType: 'exact';
+      bidCents: number;
+    }
+  | {
+      type: 'create-negative-keyword';
+      adGroupExternalId: string;
+      keywordText: string;
+      matchType: 'negative-exact';
+    }
+  | { type: 'update-keyword-bid'; keywordExternalId: string; fromCents: number; toCents: number }
+  | { type: 'update-keyword-state'; keywordExternalId: string; from: PlatformState; to: 'paused' }
+  | {
+      type: 'update-campaign-budget';
+      externalCampaignId: string;
+      fromCents: number;
+      toCents: number;
+    };
+
+export type ProposalStatus =
+  | 'proposed'
+  | 'authorized'
+  | 'rejected'
+  | 'reserved'
+  | 'sending'
+  | 'uncertain'
+  | 'applied'
+  | 'failed'
+  | 'cancelled'
+  | 'expired';
+
+export interface ProposalEvidence {
+  evidenceId: string;
+  sourceLabel: string;
+  matureThrough: string;
+  matureClicks: number;
+  matureOrders: number;
+  spendCents: number;
+  salesCents: number;
+  cpcCents: number | null;
+  probabilityProfitable: number | null;
+  affordableCpcCents: number | null;
+  observedAt: string;
+}
+
+export interface Proposal {
+  id: string;
+  dataset: Dataset;
+  accountId: string;
+  campaignId: string;
+  campaignName: string;
+  actionClass: ActionClass;
+  action: ProposalAction;
+  targetRef: string;
+  title: string;
+  reason: string;
+  evidence: ProposalEvidence;
+  expectedPriorState: Record<string, string | number | null>;
+  maxCommitmentCents: number;
+  status: ProposalStatus;
+  needsReview: boolean;
+  relevance: { level: Relevance; reason: string } | null;
+  policyVersion: string;
+  idempotencyKey: string;
+  authorization: { by: 'operator' | 'policy'; at: string; policyVersion: string } | null;
+  readBack: Record<string, string | number | null> | null;
+  history: { at: string; status: ProposalStatus; note: string }[];
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExecutionAttempt {
+  id: string;
+  proposalId: string;
+  accountId: string;
+  dataset: Dataset;
+  idempotencyKey: string;
+  startedAt: string;
+  finishedAt: string | null;
+  outcome: 'applied' | 'uncertain' | 'failed' | 'reconciled' | null;
+  note: string;
+}
+
+export interface SyncRun {
+  id: string;
+  accountId: string;
+  dataset: Dataset;
+  startedAt: string;
+  finishedAt: string;
+  status: SyncStatus;
+  message: string;
+  startDate: string;
+  endDate: string;
+  rows: { campaigns: number; keywords: number; searchTerms: number };
+}
+
+export interface LedgerEntry {
+  campaignId: string;
+  date: string;
+  units: number;
+  netReceiptsCents: number;
+  refundsCents: number;
+  observedAt: string;
+}
+
+export interface Scorecard {
+  campaignId: string;
+  campaignName: string;
+  entityName: string;
+  linked: boolean;
+  platformState: PlatformState | null;
+  platformDailyBudgetCents: number | null;
+  metrics: Metrics;
+  breakEvenAcos: number | null;
+  targetAcos: number | null;
+  keywords: number;
+  searchTerms: number;
+  ledger: { units: number; netReceiptsCents: number; refundsCents: number; days: number } | null;
+  /** Ledger receipts minus variable costs, refunds, and ad spend over the selected days. */
+  ledgerContributionCents: number | null;
+  decision: Decision;
+  openProposals: number;
+}
+
+export interface BrainView {
+  dataset: Dataset;
+  generatedAt: string;
+  days: number;
+  accounts: AdAccount[];
+  links: AccountLink[];
+  platform: Record<string, PlatformSnapshot>;
+  scorecards: Scorecard[];
+  proposals: Proposal[];
+  searchTerms: SearchTermView[];
+  executions: ExecutionAttempt[];
+  syncRuns: SyncRun[];
+  ai: {
+    provider: 'anthropic' | 'openai' | null;
+    model: string | null;
+    requestsToday: number;
+    dailyLimit: number;
+  };
+  integrations: {
+    amazonAds: { configured: boolean; writesEnabled: boolean };
+    anthropic: boolean;
+    openai: boolean;
+  };
 }
