@@ -75,9 +75,9 @@ The adapter can create exact keywords, negative exact keywords, direct-ASIN prod
 4. current evidence and an unchanged policy version;
 5. verified campaign and book economics;
 6. a single mapped advertised ASIN whose product rows reconcile with campaign facts;
-7. expected platform state, account commitment room, title loss room, and title daily-budget room.
+7. expected platform state, account commitment room, title loss room, title daily-budget room, and room beneath the account portfolio daily-budget ceiling.
 
-The execution outbox is written before the API mutation. Lost responses become uncertain and require read-back. Every accepted mutation is read back from Amazon before Orbit marks it applied. Daily budgets are not hard cash caps: Amazon can vary daily delivery under its budgeting policy, and a pause is not instantaneous.
+The execution outbox is written before the API mutation. Lost responses become uncertain and require read-back. Every accepted mutation is read back from Amazon before Orbit marks it applied. Before a budget increase, Orbit totals all enabled campaign budgets returned by Amazon, including unlinked campaigns, and cancels if the reviewed increase no longer fits the portfolio ceiling. Concurrent increases reserve that room inside the local transaction. Daily budgets and their portfolio sum are not hard cash caps: Amazon can vary daily delivery under its budgeting policy, and a pause is not instantaneous.
 
 Matched ASINs can become a reviewed direct product target after mature profitable evidence, or a reviewed negative product target after mature loss evidence. Both actions always require an operator because the Ads API report does not prove title relevance or retail eligibility. Existing direct-ASIN bid and pause changes can use the normal policy envelope. Orbit does not write category, brand, refinement, or automatic targeting expressions.
 

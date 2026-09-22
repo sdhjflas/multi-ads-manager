@@ -26,7 +26,7 @@ import type {
   ProposalStatus,
   SearchTermView,
 } from '../shared/types';
-import { actionClasses } from '../shared/types';
+import { actionClasses, DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS } from '../shared/types';
 import { Badge, Empty, Modal } from './components';
 import { api, date, money, number, percent, timeAgo } from './lib';
 import './brain.css';
@@ -244,6 +244,23 @@ export function BrainPage({
               <span>
                 <b>{number(view.links.filter((l) => l.accountId === account.id).length)}</b> linked
                 campaigns
+              </span>
+              <span>
+                <b>
+                  {money(
+                    (view.platform[account.id]?.campaigns || [])
+                      .filter((campaign) => campaign.state === 'enabled')
+                      .reduce((sum, campaign) => sum + campaign.dailyBudgetCents, 0),
+                    0,
+                  )}
+                </b>{' '}
+                /{' '}
+                {money(
+                  account.policy.maxPortfolioDailyBudgetCents ??
+                    DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS,
+                  0,
+                )}{' '}
+                active budget ceiling
               </span>
             </div>
             <div className="brain-account-actions">
@@ -1282,6 +1299,7 @@ function PolicyForm({
             maxBidCents: Math.round(n('maxBid') * 100),
             maxBidStepPct: n('maxBidStepPct'),
             maxDailyBudgetCents: Math.round(n('maxDailyBudget') * 100),
+            maxPortfolioDailyBudgetCents: Math.round(n('maxPortfolioDailyBudget') * 100),
             maxBudgetStepPct: n('maxBudgetStepPct'),
             maxDailyCommitmentCents: Math.round(n('maxDailyCommitment') * 100),
             cooldownHours: n('cooldownHours'),
@@ -1356,6 +1374,13 @@ function PolicyForm({
           'maxDailyBudget',
           policy.maxDailyBudgetCents / 100,
           '0.01',
+        )}
+        {field(
+          'Portfolio daily budget ceiling ($)',
+          'maxPortfolioDailyBudget',
+          (policy.maxPortfolioDailyBudgetCents ?? DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS) / 100,
+          '0.01',
+          '1',
         )}
         {field('Budget step (%)', 'maxBudgetStepPct', policy.maxBudgetStepPct)}
         {field(

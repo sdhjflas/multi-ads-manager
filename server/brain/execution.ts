@@ -9,7 +9,16 @@ import type {
 import { Store } from '../store.js';
 import { AppError } from '../validation.js';
 import { ConnectorError, type Connector, type MutationResult } from '../connectors/connector.js';
-import { analyzeAccount, dedupeProposals, isOpen, OPEN_STATUSES } from './policy.js';
+import {
+  activeCampaignDailyBudgetCents,
+  activePortfolioDailyBudgetCents,
+  analyzeAccount,
+  dedupeProposals,
+  isOpen,
+  OPEN_STATUSES,
+  portfolioDailyBudgetLimit,
+  rankProposals,
+} from './policy.js';
 import { bookCommitmentBlocker } from '../books.js';
 import { syncAccount } from './sync.js';
 import { accountNow } from './accounts.js';
@@ -141,6 +150,33 @@ export function committedToday(store: Store, account: AdAccount, day: string): n
   ).total;
 }
 
+const budgetIncrease = (proposal: Proposal) =>
+  proposal.action.type === 'update-campaign-budget'
+    ? Math.max(0, proposal.action.toCents - proposal.action.fromCents)
+    : 0;
+
+/** Prevents concurrent budget proposals from exceeding the account's active-budget ceiling. */
+export function portfolioBudgetBlocker(
+  store: Store,
+  account: AdAccount,
+  proposal: Proposal,
+): string | null {
+  const increase = budgetIncrease(proposal);
+  if (!increase) return null;
+  const snapshot = store.snapshot(account.id);
+  if (!snapshot) return 'Synchronize platform budgets before increasing a campaign budget.';
+  const inFlight = store
+    .accountProposals(account.id, ['reserved', 'sending', 'uncertain'])
+    .filter((candidate) => candidate.id !== proposal.id)
+    .reduce((sum, candidate) => sum + budgetIncrease(candidate), 0);
+  if (
+    activePortfolioDailyBudgetCents(snapshot) + inFlight + increase >
+    portfolioDailyBudgetLimit(account.policy)
+  )
+    return 'This increase would exceed the account portfolio daily budget ceiling.';
+  return null;
+}
+
 type PriorState = Record<string, string | number | null>;
 async function currentState(
   connector: Connector,
@@ -215,7 +251,13 @@ async function currentState(
     case 'update-campaign-budget': {
       const campaigns = await connector.listCampaigns();
       const found = campaigns.find((c) => c.externalId === campaignId);
-      return found ? { dailyBudgetCents: found.dailyBudgetCents, state: found.state } : null;
+      return found
+        ? {
+            dailyBudgetCents: found.dailyBudgetCents,
+            state: found.state,
+            portfolioDailyBudgetCents: activeCampaignDailyBudgetCents(campaigns),
+          }
+        : null;
     }
   }
 }
@@ -517,6 +559,12 @@ export async function executeProposal(
       store.saveProposal(next);
       return { ok: false as const, proposal: next };
     }
+    const portfolioLimit = portfolioBudgetBlocker(store, { ...account, policy }, fresh);
+    if (portfolioLimit) {
+      const next = transition(fresh, 'cancelled', portfolioLimit, now);
+      store.saveProposal(next);
+      return { ok: false as const, proposal: next };
+    }
     if (
       committedToday(store, account, today) + fresh.maxCommitmentCents >
       policy.maxDailyCommitmentCents
@@ -551,6 +599,18 @@ export async function executeProposal(
       p,
       'cancelled',
       `Platform state drifted from the reviewed state (${JSON.stringify(actual)}).`,
+    );
+  if (
+    p.action.type === 'update-campaign-budget' &&
+    p.action.toCents > p.action.fromCents &&
+    typeof actual?.portfolioDailyBudgetCents === 'number' &&
+    actual.portfolioDailyBudgetCents + (p.action.toCents - p.action.fromCents) >
+      portfolioDailyBudgetLimit(policy)
+  )
+    return fail(
+      p,
+      'cancelled',
+      'Live platform budgets now exceed the room under the portfolio daily budget ceiling.',
     );
   const currentAccount = store.account(account.dataset, account.id);
   if (currentAccount.policy.killSwitch || currentAccount.policy.version !== policy.version)
@@ -836,8 +896,7 @@ async function cycleBrain(
   });
   summary.proposed = fresh.length;
   if (account.policy.mode !== 'bounded' || account.policy.killSwitch) return summary;
-  const eligible = store
-    .accountProposals(account.id, ['proposed'])
+  const eligible = rankProposals(store.accountProposals(account.id, ['proposed']))
     .filter((p) => !p.needsReview && account.policy.allowedClasses.includes(p.actionClass))
     .slice(0, account.policy.maxActionsPerRun);
   for (const p of eligible) {
@@ -848,8 +907,7 @@ async function cycleBrain(
       summary.notes.push(`${p.title}: ${(error as Error).message}`);
     }
   }
-  const authorized = store
-    .accountProposals(account.id, ['authorized'])
+  const authorized = rankProposals(store.accountProposals(account.id, ['authorized']))
     .filter((p) => p.authorization?.by === 'policy')
     .slice(0, account.policy.maxActionsPerRun);
   for (const p of authorized) {

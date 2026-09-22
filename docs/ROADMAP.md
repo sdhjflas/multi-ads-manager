@@ -70,6 +70,15 @@ See [The brain](BRAIN.md) and [Amazon API contract](AMAZON_API.md).
 - Observe-only handling for automatic, category, brand, and refinement expressions; malformed ASINs, IDs, and bids are rejected before a write request.
 - Dashboard coverage for targets and exclusions, source-specific search-term labels, six-grain report progress, and regression coverage through the simulated connector.
 
+## Milestone 0.6 — implemented portfolio governor
+
+- A configurable active daily-budget ceiling covers every enabled campaign in an advertiser profile, including campaigns that are not linked to a local book.
+- Budget-up proposals are clamped to current portfolio room; no room means no scale proposal.
+- Reserved, sending, and uncertain budget changes consume ceiling room so concurrent execution cannot overbook it.
+- Execution re-reads the full live campaign list and cancels when another console or process has consumed the reviewed room.
+- Review slates preserve representation across available action classes, then use evidence-aware defensive priority for remaining slots; bounded execution uses defensive priority across the account.
+- The account dashboard exposes active budgets beside the ceiling, and the policy editor versions changes to that ceiling with the rest of the operating envelope.
+
 Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, placement and complex product-expression actions, independent receipt/royalty reconciliation, and a live supervised pilot.
 
 ## Milestone 1 — connected observation, two equal tracks

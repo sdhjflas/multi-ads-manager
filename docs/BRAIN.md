@@ -12,7 +12,7 @@ sync → evaluate → (AI relevance review) → propose → authorize → reserv
 
 1. **Sync** verifies the Amazon profile, then pulls campaigns, ad groups, keywords, negative keywords, product targets, and negative product targets plus six separate daily report grains. Amazon requests cover at most 31 days and durable jobs survive restarts. Every generation refreshes at least 56 completed account-calendar days for delayed conversion restatements. Live reports do not invent zero rows. Health records `ok`, `partial`, `pending`, `throttled`, or `error`; only a complete `ok` run advances the watermark or permits evaluation.
 2. **Evaluate** applies the same posterior screen used for campaigns (`Beta(1 + purchases, 19 + non-converting clicks)` against `observed CPC / affordable CPC`) to every keyword cell, direct-ASIN target cell, and source-specific search term. Recent cohorts inside the attribution window and today are excluded.
-3. **Propose** turns evidence into one of seven action classes, each with an expected prior platform state, a maximum additional daily commitment, an evidence digest, an idempotency key, and a 72-hour expiry.
+3. **Propose** turns evidence into one of seven action classes, each with an expected prior platform state, a maximum additional daily commitment, an evidence digest, an idempotency key, and a 72-hour expiry. The saved review slate keeps one qualifying item from each available class, then fills its remaining capacity in defensive-first order across the whole account.
 4. **Authorize** by an operator, or by a bounded policy for allowed classes that do not need review.
 5. **Execute** reserves commitment inside the daily envelope, re-reads the platform state and re-runs the evaluation, writes an outbox row, sends the change, and reads it back. A lost response becomes `uncertain` and is reconciled from platform state before anything is retried.
 
@@ -39,7 +39,7 @@ Thresholds are policy fields and can be changed per account. All classes require
 | `supervised` | An operator authorizes a proposal, then presses Execute; the exact reviewed change is sent        |
 | `bounded`    | Each run authorizes and executes the allowed classes that do not need review, within the envelope |
 
-Envelope fields: maximum bid, bid step, maximum daily budget, budget step, daily commitment envelope (sum of commitments reserved or applied that day), cooldown hours per target, actions per run, and maximum evidence age. Saving a changed policy creates a new version and cancels proposed or authorized work from the previous version. Execution rechecks the current version before and after reading platform state.
+Envelope fields: maximum bid, bid step, maximum daily budget per campaign, **portfolio daily budget ceiling** across every enabled platform campaign in the account, budget step, daily commitment envelope (sum of incremental commitments reserved or applied that day), cooldown hours per target, actions per run, and maximum evidence age. The portfolio ceiling includes unlinked campaigns because they can still spend from the same advertiser account. Concurrent budget increases reserve room atomically, and execution re-reads all live campaign budgets before sending an increase. Saving a changed policy creates a new version and cancels proposed or authorized work from the previous version.
 
 The **kill switch** cancels every authorized or reserved proposal and blocks execution until released. It cannot recall a request the platform has already accepted, and delayed reporting means no software monitor can promise zero overshoot.
 
@@ -53,7 +53,7 @@ A keyword harvest is flagged **needs review** until a relevance review exists an
 
 ## Measurement
 
-The scorecard shows, per campaign and for the selected period: spend, attributed sales, ROAS, ACOS beside the target ACOS `(unit contribution − profit reserve) / retail price` and the break-even ACOS, modeled contribution, keyword/product-target/search-term counts, the current screening decision, and open proposals.
+The account card shows active platform daily budgets beside the portfolio ceiling. The scorecard shows, per campaign and for the selected period: spend, attributed sales, ROAS, ACOS beside the target ACOS `(unit contribution − profit reserve) / retail price` and the break-even ACOS, modeled contribution, keyword/product-target/search-term counts, the current screening decision, and open proposals.
 
 **Ledger contribution** appears when a business ledger exists: `net receipts − units × variable cost − refunds − ad spend` over the period. Import a ledger (`date,units,net_receipts_cents,refunds_cents`) from the scorecard footer in Your workspace. Ledger receipts are reconciled facts and are kept separate from platform attribution; the two are shown side by side, never added.
 
@@ -80,5 +80,6 @@ SQLite schema version 6 includes accounts, platform snapshots, search terms, pro
 
 - Proposals are observational screening signals. Applying one does not establish causal lift; confirm important changes in a registered test wave.
 - The daily commitment envelope bounds additional exposure from Orbit's own changes. It is not a cash lock: Amazon can spend above an average daily budget, and pauses are not instantaneous.
+- The portfolio ceiling governs configured daily budgets, not actual debits. It blocks Orbit from adding budget when enabled campaign budgets have no room, including after live platform drift.
 - Sponsored Products keywords and single `ASIN_SAME_AS` targets can be acted on. Category, brand, refinement, and automatic expressions are observe-only. Placements and Sponsored Brands are outside this execution adapter.
 - One set of Amazon credentials per server. Multi-tenant authorization, encrypted credential storage, and hosted deployment remain future work.

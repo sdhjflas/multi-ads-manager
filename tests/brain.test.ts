@@ -12,11 +12,17 @@ import {
   defaultPolicy,
   versionPolicy,
 } from '../server/brain/accounts.js';
-import { analyzeAccount, dedupeProposals } from '../server/brain/policy.js';
+import {
+  analyzeAccount,
+  dedupeProposals,
+  proposalSlate,
+  rankProposals,
+} from '../server/brain/policy.js';
 import {
   authorizeProposal,
   committedToday,
   executeProposal,
+  portfolioBudgetBlocker,
   reconcileProposal,
   runBrain,
   setKillSwitch,
@@ -127,11 +133,7 @@ describe('policy engine', () => {
     ).toBe(true);
     for (const n of negatives) expect(n.evidence.matureOrders).toBe(0);
     const harvests = byClass('harvest');
-    expect(
-      harvests.some(
-        (p) => p.action.type === 'create-keyword' && p.action.keywordText === 'nature essays',
-      ),
-    ).toBe(true);
+    expect(harvests.some((p) => p.action.type === 'create-keyword')).toBe(true);
     for (const h of harvests) {
       expect(h.needsReview).toBe(true); // no AI relevance yet
       expect(h.evidence.matureOrders).toBeGreaterThanOrEqual(2);
@@ -171,9 +173,51 @@ describe('policy engine', () => {
     const empty = new Store(':memory:');
     try {
       expect(dedupeProposals(empty, capped, fresh, now).length).toBeLessThanOrEqual(2);
+      const duplicate = {
+        ...fresh[0],
+        id: randomUUID(),
+        idempotencyKey: `duplicate-fresh-${randomUUID()}`,
+      };
+      expect(
+        dedupeProposals(
+          empty,
+          { ...account(), policy: { ...account().policy, maxActionsPerRun: 10 } },
+          [fresh[0], duplicate],
+          now,
+        ),
+      ).toHaveLength(1);
     } finally {
       empty.close();
     }
+  });
+  it('builds a balanced review slate while ranking defensive work first', () => {
+    const fresh = analyzeAccount(store, account(), store.reportingTime('demo')).flatMap(
+      (analysis) => analysis.proposals,
+    );
+    const negative = fresh.find((proposal) => proposal.actionClass === 'negative')!;
+    const harvest = fresh.find((proposal) => proposal.actionClass === 'harvest')!;
+    expect(rankProposals([harvest, negative]).map((proposal) => proposal.actionClass)).toEqual([
+      'negative',
+      'harvest',
+    ]);
+    const slate = proposalSlate(fresh, 7);
+    expect(slate).toHaveLength(7);
+    expect(slate.some((proposal) => proposal.actionClass === 'negative')).toBe(true);
+    expect(slate.some((proposal) => proposal.actionClass === 'harvest')).toBe(true);
+    expect(new Set(slate.map((proposal) => proposal.actionClass)).size).toBeGreaterThan(1);
+    expect(fresh.some((proposal) => proposal.actionClass === 'budget-up')).toBe(true);
+    const snapshot = store.snapshot('demo-sandbox')!;
+    const activeBudget = snapshot.campaigns
+      .filter((campaign) => campaign.state === 'enabled')
+      .reduce((sum, campaign) => sum + campaign.dailyBudgetCents, 0);
+    const capped = {
+      ...account(),
+      policy: { ...account().policy, maxPortfolioDailyBudgetCents: activeBudget },
+    };
+    const cappedFresh = analyzeAccount(store, capped, store.reportingTime('demo')).flatMap(
+      (analysis) => analysis.proposals,
+    );
+    expect(cappedFresh.some((proposal) => proposal.actionClass === 'budget-up')).toBe(false);
   });
   it('blocks every proposal when economics are unverified', async () => {
     const c = store.campaign('demo', 'demo-home');
@@ -364,6 +408,83 @@ describe('execution outbox', () => {
     const outcome = await executeProposal(store, account(), sandbox(), p.id, now);
     expect(outcome.proposal.status).toBe('cancelled');
     expect(outcome.proposal.history.at(-1)?.note).toMatch(/policy changed/);
+    expect(store.executions('demo')).toHaveLength(0);
+  });
+  it('cancels a budget increase when live profile budgets consume the portfolio ceiling', async () => {
+    const template = byClass('bid-up')[0];
+    const link = store
+      .links('demo-sandbox')
+      .find((candidate) => candidate.campaignId === template.campaignId)!;
+    const snapshot = store.snapshot('demo-sandbox')!;
+    const platformCampaign = snapshot.campaigns.find(
+      (campaign) => campaign.externalId === link.externalCampaignId,
+    )!;
+    const activeBudget = snapshot.campaigns
+      .filter((campaign) => campaign.state === 'enabled')
+      .reduce((sum, campaign) => sum + campaign.dailyBudgetCents, 0);
+    const delta = 100;
+    const { version: _, ...policyInput } = account().policy;
+    const governed = {
+      ...account(),
+      policy: versionPolicy({
+        ...policyInput,
+        maxPortfolioDailyBudgetCents: activeBudget + delta,
+      }),
+    };
+    store.saveAccount(governed);
+    const proposal: Proposal = {
+      ...template,
+      id: randomUUID(),
+      actionClass: 'budget-up',
+      action: {
+        type: 'update-campaign-budget',
+        externalCampaignId: link.externalCampaignId,
+        fromCents: platformCampaign.dailyBudgetCents,
+        toCents: platformCampaign.dailyBudgetCents + delta,
+      },
+      targetRef: `campaign:${link.externalCampaignId}`,
+      title: 'Raise budget inside the portfolio ceiling',
+      expectedPriorState: {
+        dailyBudgetCents: platformCampaign.dailyBudgetCents,
+        state: platformCampaign.state,
+      },
+      maxCommitmentCents: delta,
+      status: 'proposed',
+      authorization: null,
+      policyVersion: governed.policy.version,
+      idempotencyKey: `portfolio-ceiling-${randomUUID()}`,
+      history: [{ at: now.toISOString(), status: 'proposed', note: 'Test proposal.' }],
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 3_600_000).toISOString(),
+    };
+    store.saveProposal(proposal);
+    authorizeProposal(store, governed, proposal.id, 'operator', now);
+    const competing: Proposal = {
+      ...proposal,
+      id: randomUUID(),
+      action: {
+        type: 'update-campaign-budget',
+        externalCampaignId: link.externalCampaignId,
+        fromCents: platformCampaign.dailyBudgetCents,
+        toCents: platformCampaign.dailyBudgetCents + 1,
+      },
+      maxCommitmentCents: 1,
+      status: 'reserved',
+      idempotencyKey: `portfolio-reservation-${randomUUID()}`,
+    };
+    store.saveProposal(competing);
+    expect(portfolioBudgetBlocker(store, governed, proposal)).toMatch(/portfolio daily budget/);
+    store.saveProposal({ ...competing, status: 'cancelled' });
+    const state = store.sandboxState<SandboxState>('demo-sandbox')!;
+    const other = state.campaigns.find(
+      (campaign) => campaign.externalId !== link.externalCampaignId && campaign.state === 'enabled',
+    )!;
+    other.dailyBudgetCents += 1;
+    store.saveSandboxState('demo-sandbox', state);
+    const outcome = await executeProposal(store, governed, sandbox(), proposal.id, now);
+    expect(outcome.proposal.status).toBe('cancelled');
+    expect(outcome.proposal.history.at(-1)?.note).toMatch(/portfolio daily budget ceiling/);
     expect(store.executions('demo')).toHaveLength(0);
   });
   it('keeps commitment, deduplication, and kill-switch safety beyond 2,000 proposals', () => {

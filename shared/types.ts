@@ -361,6 +361,7 @@ export const actionClasses: ActionClass[] = [
   'budget-up',
   'budget-down',
 ];
+export const DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS = 100_000;
 
 export interface Policy {
   version: string;
@@ -373,6 +374,8 @@ export interface Policy {
   maxBidCents: number;
   maxBidStepPct: number;
   maxDailyBudgetCents: number;
+  /** Sum of enabled platform campaign daily budgets allowed for this account. */
+  maxPortfolioDailyBudgetCents: number;
   maxBudgetStepPct: number;
   /** Additional daily exposure that reserved and applied actions may add per UTC day. */
   maxDailyCommitmentCents: number;

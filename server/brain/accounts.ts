@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AdAccount, Dataset, Policy } from '../../shared/types.js';
-import { actionClasses } from '../../shared/types.js';
+import { actionClasses, DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS } from '../../shared/types.js';
 import { Store } from '../store.js';
 import { AppError, datasetSchema } from '../validation.js';
 import type { Connector } from '../connectors/connector.js';
@@ -22,6 +22,7 @@ export const policyInput = z
     maxBidCents: z.number().int().min(2).max(100_000),
     maxBidStepPct: z.number().int().min(1).max(50),
     maxDailyBudgetCents: z.number().int().min(100).max(100_000_000),
+    maxPortfolioDailyBudgetCents: z.number().int().min(100).max(100_000_000),
     maxBudgetStepPct: z.number().int().min(1).max(50),
     maxDailyCommitmentCents: z.number().int().min(0).max(100_000_000),
     cooldownHours: z.number().int().min(0).max(720),
@@ -54,6 +55,7 @@ export function defaultPolicy(overrides: Partial<PolicyInput> = {}): Policy {
     maxBidCents: 300,
     maxBidStepPct: 20,
     maxDailyBudgetCents: 20_000,
+    maxPortfolioDailyBudgetCents: DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS,
     maxBudgetStepPct: 20,
     maxDailyCommitmentCents: 5_000,
     cooldownHours: 72,

@@ -450,6 +450,10 @@ test('runs the brain on the simulated account: authorize, execute, read back, an
     page.getByRole('heading', { name: 'The brain behind the campaigns.' }),
   ).toBeVisible();
   await expect(page.getByText('Sample publisher · simulated Amazon Ads')).toBeVisible();
+  await expect(page.getByText(/active budget ceiling/)).toBeVisible();
+  await page.getByRole('button', { name: 'Policy', exact: true }).click();
+  await expect(page.getByLabel('Portfolio daily budget ceiling ($)')).toHaveValue('1000');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
   await expect(page.getByRole('table', { name: 'Campaign scorecard' })).toContainText(
     'A Wilder Kind of Home',
   );

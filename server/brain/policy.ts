@@ -7,12 +7,14 @@ import type {
   Decision,
   Observation,
   PlatformSnapshot,
+  Policy,
   Proposal,
   ProposalAction,
   ProposalEvidence,
   SearchTermView,
   TestWave,
 } from '../../shared/types.js';
+import { DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS } from '../../shared/types.js';
 import { Store } from '../store.js';
 import { dayAt, decide, metrics, unitContribution } from '../engine.js';
 import { bookBlockers, bookCommitmentBlocker, bookViews, productRows } from '../books.js';
@@ -89,8 +91,58 @@ const classPriority: Record<ActionClass, number> = {
   'budget-up': 6,
 };
 
+export const portfolioDailyBudgetLimit = (policy: Policy) =>
+  policy.maxPortfolioDailyBudgetCents ?? DEFAULT_PORTFOLIO_DAILY_BUDGET_CENTS;
+
+export const activeCampaignDailyBudgetCents = (campaigns: PlatformSnapshot['campaigns']) =>
+  campaigns
+    .filter((campaign) => campaign.state === 'enabled')
+    .reduce((sum, campaign) => sum + campaign.dailyBudgetCents, 0);
+
+export const activePortfolioDailyBudgetCents = (snapshot: PlatformSnapshot | null | undefined) =>
+  snapshot ? activeCampaignDailyBudgetCents(snapshot.campaigns) : 0;
+
+/** Defensive work wins account-wide action capacity; ties use evidence, then stable identity. */
+export function rankProposals(proposals: Proposal[]): Proposal[] {
+  const defensive = new Set<ActionClass>(['negative', 'pause', 'bid-down', 'budget-down']);
+  const probability = (proposal: Proposal, fallback: number) =>
+    proposal.evidence.probabilityProfitable ?? fallback;
+  return [...proposals].sort((a, b) => {
+    const byClass = classPriority[a.actionClass] - classPriority[b.actionClass];
+    if (byClass) return byClass;
+    const byProbability = defensive.has(a.actionClass)
+      ? probability(a, 1) - probability(b, 1)
+      : probability(b, -1) - probability(a, -1);
+    return (
+      byProbability ||
+      b.evidence.spendCents - a.evidence.spendCents ||
+      a.campaignId.localeCompare(b.campaignId) ||
+      a.targetRef.localeCompare(b.targetRef)
+    );
+  });
+}
+
+/** Keeps the review queue representative, then fills remaining slots by safety priority. */
+export function proposalSlate(proposals: Proposal[], limit: number): Proposal[] {
+  const ranked = rankProposals(proposals);
+  const selected: Proposal[] = [];
+  const classes = (Object.keys(classPriority) as ActionClass[]).sort(
+    (a, b) => classPriority[a] - classPriority[b],
+  );
+  for (const actionClass of classes) {
+    const candidate = ranked.find((proposal) => proposal.actionClass === actionClass);
+    if (candidate) selected.push(candidate);
+    if (selected.length >= limit) return rankProposals(selected);
+  }
+  for (const proposal of ranked) {
+    if (!selected.includes(proposal)) selected.push(proposal);
+    if (selected.length >= limit) break;
+  }
+  return rankProposals(selected);
+}
+
 /**
- * Deterministic policy: turns mature keyword and search-term evidence into
+ * Deterministic policy: turns mature keyword, product-target, and search-term evidence into
  * exact, previewable platform changes with an expected prior state and a
  * maximum daily commitment. Nothing here talks to a platform or a model.
  */
@@ -252,6 +304,10 @@ export function analyzeCampaign(
     updatedAt: now.toISOString(),
   });
   const gated = blockers.length > 0 || decision.kind === 'repair' || room === null || room <= 0;
+  const portfolioBudgetRoom = Math.max(
+    0,
+    portfolioDailyBudgetLimit(policy) - activePortfolioDailyBudgetCents(snapshot),
+  );
 
   // ---- Campaign budget ------------------------------------------------------
   if (!gated && platformCampaign && platformCampaign.state === 'enabled') {
@@ -260,6 +316,7 @@ export function analyzeCampaign(
       const to = Math.min(
         decision.suggestedDailyBudgetCents,
         policy.maxDailyBudgetCents,
+        from + portfolioBudgetRoom,
         Math.floor(from * (1 + policy.maxBidStepPct / 100)),
         Math.floor(from * (1 + policy.maxBudgetStepPct / 100)),
       );
@@ -728,12 +785,15 @@ export function dedupeProposals(
   const applied = store.accountProposals(account.id, ['applied']);
   const cooldownMs = account.policy.cooldownHours * 3_600_000;
   const kept: Proposal[] = [];
-  for (const p of fresh) {
+  for (const p of rankProposals(fresh)) {
     if (store.proposalByKey(p.idempotencyKey)) continue;
     const alreadyOpen = open.some(
       (e) => e.campaignId === p.campaignId && e.targetRef === p.targetRef && isOpen(e.status),
     );
-    if (alreadyOpen) continue;
+    const alreadyKept = kept.some(
+      (candidate) => candidate.campaignId === p.campaignId && candidate.targetRef === p.targetRef,
+    );
+    if (alreadyOpen || alreadyKept) continue;
     const recent = applied.some(
       (e) =>
         e.campaignId === p.campaignId &&
@@ -743,9 +803,8 @@ export function dedupeProposals(
     );
     if (recent) continue;
     kept.push(p);
-    if (kept.length >= account.policy.maxActionsPerRun) break;
   }
-  return kept;
+  return proposalSlate(kept, account.policy.maxActionsPerRun);
 }
 
 export function analyzeAccount(
