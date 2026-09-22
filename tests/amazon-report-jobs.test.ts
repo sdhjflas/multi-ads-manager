@@ -245,30 +245,44 @@ describe('durable Amazon reporting', () => {
 });
 
 describe('Amazon contracts and identity', () => {
-  it('collects 501 campaigns worth of keywords with bounded filters', async () => {
+  it('collects 501 campaigns worth of keywords and product targets with bounded filters', async () => {
     let reads = 0;
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
       if (String(url).endsWith('/auth/o2/token')) return token();
       const filter = JSON.parse(String(init?.body)).campaignIdFilter.include as string[];
       expect(filter.length).toBeLessThanOrEqual(100);
       reads++;
-      return json({
-        keywords: filter.map((id) => ({
-          keywordId: id,
-          campaignId: id,
-          adGroupId: id,
-          keywordText: 'book',
-          matchType: 'EXACT',
-          state: 'ENABLED',
-          bid: 0.25,
-        })),
-      });
+      return String(url).endsWith('/sp/targets/list')
+        ? json({
+            targetingClauses: filter.map((id) => ({
+              targetId: String(Number(id) + 1000),
+              campaignId: id,
+              adGroupId: id,
+              expressionType: 'MANUAL',
+              expression: [{ type: 'ASIN_SAME_AS', value: `B${id.padStart(9, '0')}` }],
+              state: 'ENABLED',
+              bid: 0.25,
+            })),
+          })
+        : json({
+            keywords: filter.map((id) => ({
+              keywordId: id,
+              campaignId: id,
+              adGroupId: id,
+              keywordText: 'book',
+              matchType: 'EXACT',
+              state: 'ENABLED',
+              bid: 0.25,
+            })),
+          });
     });
-    const keywords = await new AmazonAdsConnector(config, fetcher).listKeywords(
-      Array.from({ length: 501 }, (_, i) => String(i + 1)),
-    );
+    const connector = new AmazonAdsConnector(config, fetcher);
+    const campaigns = Array.from({ length: 501 }, (_, i) => String(i + 1));
+    const keywords = await connector.listKeywords(campaigns);
+    const targets = await connector.listProductTargets(campaigns);
     expect(keywords).toHaveLength(501);
-    expect(reads).toBe(6);
+    expect(targets).toHaveLength(501);
+    expect(reads).toBe(12);
   });
   it('rejects a list response that truncates its advertised result count', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {

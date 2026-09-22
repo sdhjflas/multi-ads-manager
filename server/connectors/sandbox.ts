@@ -5,6 +5,8 @@ import type {
   PlatformCampaign,
   PlatformKeyword,
   PlatformNegativeKeyword,
+  PlatformNegativeProductTarget,
+  PlatformProductTarget,
   PlatformState,
 } from '../../shared/types.js';
 import {
@@ -16,6 +18,9 @@ import {
   type KeywordUpdate,
   type MutationResult,
   type NegativeCreate,
+  type NegativeProductTargetCreate,
+  type ProductTargetCreate,
+  type ProductTargetUpdate,
   type ReportKind,
   type ReportRow,
 } from './connector.js';
@@ -56,6 +61,17 @@ export interface SandboxCampaign {
     externalId: string;
     text: string;
     matchType: 'negative-exact' | 'negative-phrase';
+    state: PlatformState;
+  }[];
+  productTargets: {
+    externalId: string;
+    asin: string;
+    state: PlatformState;
+    bidCents: number;
+  }[];
+  negativeProductTargets: {
+    externalId: string;
+    asin: string;
     state: PlatformState;
   }[];
 }
@@ -185,8 +201,43 @@ export class SandboxConnector implements Connector {
         })),
       );
   }
+  async listProductTargets(ids: string[]): Promise<PlatformProductTarget[]> {
+    this.faultBefore();
+    return this.state.campaigns
+      .filter((c) => ids.includes(c.externalId))
+      .flatMap((c) =>
+        (c.productTargets || []).map((target) => ({
+          externalId: target.externalId,
+          campaignExternalId: c.externalId,
+          adGroupExternalId: c.adGroup.externalId,
+          expressionType: 'manual' as const,
+          expression: [{ type: 'ASIN_SAME_AS', value: target.asin }],
+          label: `ASIN_SAME_AS=${target.asin}`,
+          asin: target.asin,
+          state: target.state,
+          bidCents: target.bidCents,
+        })),
+      );
+  }
+  async listNegativeProductTargets(ids: string[]): Promise<PlatformNegativeProductTarget[]> {
+    this.faultBefore();
+    return this.state.campaigns
+      .filter((c) => ids.includes(c.externalId))
+      .flatMap((c) =>
+        (c.negativeProductTargets || []).map((target) => ({
+          externalId: target.externalId,
+          campaignExternalId: c.externalId,
+          adGroupExternalId: c.adGroup.externalId,
+          expression: [{ type: 'ASIN_SAME_AS', value: target.asin }],
+          label: `ASIN_SAME_AS=${target.asin}`,
+          asin: target.asin,
+          state: target.state,
+        })),
+      );
+  }
   async report(kind: ReportKind, startDate: string, endDate: string): Promise<ReportRow[]> {
     this.faultBefore();
+    if (kind === 'productTarget' || kind === 'productSearchTerm') return [];
     const rows: ReportRow[] = [];
     for (const campaign of this.state.campaigns) {
       const history = this.options
@@ -448,6 +499,118 @@ export class SandboxConnector implements Connector {
     this.faultAfter();
     return results;
   }
+  async createProductTargets(items: ProductTargetCreate[]): Promise<MutationResult[]> {
+    this.writable();
+    const results: MutationResult[] = [];
+    items.forEach((item, index) => {
+      const campaign = this.state.campaigns.find((c) => c.externalId === item.campaignExternalId);
+      const targets = campaign?.productTargets || [];
+      if (!campaign || campaign.adGroup.externalId !== item.adGroupExternalId) {
+        results.push({
+          index,
+          ok: false,
+          code: 'NOT_FOUND',
+          message: 'Unknown campaign or ad group.',
+        });
+        return;
+      }
+      if (!/^[A-Z0-9]{10}$/.test(item.asin) || item.bidCents < 2 || item.bidCents > 100_000) {
+        results.push({
+          index,
+          ok: false,
+          code: 'INVALID_TARGET',
+          message: 'ASIN or bid is invalid.',
+        });
+        return;
+      }
+      if (targets.some((target) => target.asin === item.asin && target.state !== 'archived')) {
+        results.push({
+          index,
+          ok: false,
+          code: 'DUPLICATE_VALUE',
+          message: 'Target already exists.',
+        });
+        return;
+      }
+      const target = {
+        externalId: this.id('pt'),
+        asin: item.asin,
+        state: 'enabled' as const,
+        bidCents: item.bidCents,
+      };
+      campaign.productTargets = targets;
+      targets.push(target);
+      results.push({ index, ok: true, externalId: target.externalId });
+    });
+    this.record('createProductTargets', items);
+    this.faultAfter();
+    return results;
+  }
+  async updateProductTargets(items: ProductTargetUpdate[]): Promise<MutationResult[]> {
+    this.writable();
+    const results: MutationResult[] = [];
+    items.forEach((item, index) => {
+      const target = this.state.campaigns
+        .filter((c) => !item.campaignExternalId || c.externalId === item.campaignExternalId)
+        .flatMap((c) => c.productTargets || [])
+        .find((candidate) => candidate.externalId === item.externalId);
+      if (!target) {
+        results.push({ index, ok: false, code: 'NOT_FOUND', message: 'Unknown product target.' });
+        return;
+      }
+      if (item.bidCents !== undefined) {
+        if (item.bidCents < 2 || item.bidCents > 100_000) {
+          results.push({ index, ok: false, code: 'INVALID_BID', message: 'Bid is out of range.' });
+          return;
+        }
+        target.bidCents = item.bidCents;
+      }
+      if (item.state !== undefined) target.state = item.state;
+      results.push({ index, ok: true, externalId: target.externalId });
+    });
+    this.record('updateProductTargets', items);
+    this.faultAfter();
+    return results;
+  }
+  async createNegativeProductTargets(
+    items: NegativeProductTargetCreate[],
+  ): Promise<MutationResult[]> {
+    this.writable();
+    const results: MutationResult[] = [];
+    items.forEach((item, index) => {
+      const campaign = this.state.campaigns.find((c) => c.externalId === item.campaignExternalId);
+      const targets = campaign?.negativeProductTargets || [];
+      if (!campaign || campaign.adGroup.externalId !== item.adGroupExternalId) {
+        results.push({
+          index,
+          ok: false,
+          code: 'NOT_FOUND',
+          message: 'Unknown campaign or ad group.',
+        });
+        return;
+      }
+      if (!/^[A-Z0-9]{10}$/.test(item.asin)) {
+        results.push({ index, ok: false, code: 'INVALID_TARGET', message: 'ASIN is invalid.' });
+        return;
+      }
+      if (targets.some((target) => target.asin === item.asin && target.state !== 'archived')) {
+        results.push({
+          index,
+          ok: false,
+          code: 'DUPLICATE_VALUE',
+          message: 'Target already excluded.',
+        });
+        return;
+      }
+      const target = { externalId: this.id('npt'), asin: item.asin, state: 'enabled' as const };
+      campaign.negativeProductTargets = targets;
+      targets.push(target);
+      results.push({ index, ok: true, externalId: target.externalId });
+    });
+    this.record('createNegativeProductTargets', items);
+    this.faultAfter();
+    return results;
+  }
   async updateCampaigns(items: CampaignUpdate[]): Promise<MutationResult[]> {
     this.writable();
     const results: MutationResult[] = [];
@@ -516,6 +679,8 @@ export function sandboxSpec(
       targetingType: 'manual',
       adGroup: { externalId: id('ag'), name: `${c.name} · ad group`, defaultBidCents: 45 },
       negatives: [],
+      productTargets: [],
+      negativeProductTargets: [],
       keywords: (
         [
           ['sample-cell-1', 'nature writing', 'broad', 42, [0.4, 0.32, 0.65]],

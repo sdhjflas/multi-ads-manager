@@ -95,6 +95,8 @@ function fixture(report?: (kind: ReportKind) => Promise<ReportRow[]>): Connector
       },
     ],
     listNegativeKeywords: async () => [],
+    listProductTargets: async () => [],
+    listNegativeProductTargets: async () => [],
     report:
       report ||
       (async (kind) =>
@@ -118,6 +120,15 @@ function fixture(report?: (kind: ReportKind) => Promise<ReportRow[]>): Connector
       throw new Error('No writes in fixture');
     },
     createNegativeKeywords: async () => {
+      throw new Error('No writes in fixture');
+    },
+    createProductTargets: async () => {
+      throw new Error('No writes in fixture');
+    },
+    updateProductTargets: async () => {
+      throw new Error('No writes in fixture');
+    },
+    createNegativeProductTargets: async () => {
       throw new Error('No writes in fixture');
     },
     updateCampaigns: async () => {
@@ -243,5 +254,59 @@ describe('live sync gates', () => {
     expect((await syncAccount(store, account, fixture(), now)).status).toBe('ok');
     expect(productRows(store, account.id)).toHaveLength(0);
     expect(store.searchTerms('live-book').some((term) => term.id === 'old-term')).toBe(false);
+  });
+  it('ingests product-target and matched-ASIN evidence at separate report grains', async () => {
+    const connector = fixture(async (kind) => {
+      if (kind === 'campaign') return [raw];
+      if (kind === 'productTarget')
+        return [
+          {
+            ...raw,
+            adGroupExternalId: '5',
+            keywordExternalId: '10',
+            keywordText: 'asin="B012345678"',
+            matchType: 'auto',
+            clicks: 5,
+            purchases: 1,
+          },
+        ];
+      if (kind === 'productSearchTerm')
+        return [
+          {
+            ...raw,
+            adGroupExternalId: '5',
+            keywordExternalId: '10',
+            keywordText: 'asin="B012345678"',
+            matchType: 'auto',
+            searchTerm: 'B087654321',
+            clicks: 5,
+            purchases: 1,
+          },
+        ];
+      return [];
+    });
+    connector.listProductTargets = async () => [
+      {
+        externalId: '10',
+        campaignExternalId: '9',
+        adGroupExternalId: '5',
+        expressionType: 'manual',
+        expression: [{ type: 'ASIN_SAME_AS', value: 'B012345678' }],
+        label: 'ASIN_SAME_AS=B012345678',
+        asin: 'B012345678',
+        state: 'enabled',
+        bidCents: 50,
+      },
+    ];
+    const run = await syncAccount(store, account, connector, now);
+    expect(run.status).toBe('ok');
+    expect(run.rows.productTargets).toBe(1);
+    expect(store.snapshot(account.id)?.productTargets).toHaveLength(1);
+    expect(store.targets('live-book')).toContainEqual(
+      expect.objectContaining({ sourceId: '10', kind: 'product-target', matchType: 'product' }),
+    );
+    expect(store.searchTerms('live-book')).toContainEqual(
+      expect.objectContaining({ term: 'b087654321', sourceKind: 'product-target' }),
+    );
   });
 });

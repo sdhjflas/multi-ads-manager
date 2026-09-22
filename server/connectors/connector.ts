@@ -5,6 +5,8 @@ import type {
   PlatformCampaign,
   PlatformKeyword,
   PlatformNegativeKeyword,
+  PlatformNegativeProductTarget,
+  PlatformProductTarget,
   PlatformState,
 } from '../../shared/types.js';
 
@@ -33,7 +35,13 @@ export class ConnectorError extends Error {
   }
 }
 
-export type ReportKind = 'campaign' | 'keyword' | 'searchTerm' | 'advertisedProduct';
+export type ReportKind =
+  | 'campaign'
+  | 'keyword'
+  | 'searchTerm'
+  | 'productTarget'
+  | 'productSearchTerm'
+  | 'advertisedProduct';
 
 export interface ReportRow {
   date: string;
@@ -80,6 +88,23 @@ export interface NegativeCreate {
   text: string;
   matchType: NegativeMatch;
 }
+export interface ProductTargetCreate {
+  campaignExternalId: string;
+  adGroupExternalId: string;
+  asin: string;
+  bidCents: number;
+}
+export interface ProductTargetUpdate {
+  externalId: string;
+  campaignExternalId?: string;
+  bidCents?: number;
+  state?: PlatformState;
+}
+export interface NegativeProductTargetCreate {
+  campaignExternalId: string;
+  adGroupExternalId: string;
+  asin: string;
+}
 export interface CampaignUpdate {
   externalId: string;
   dailyBudgetCents?: number;
@@ -93,6 +118,10 @@ export interface Connector {
   listAdGroups(campaignExternalIds: string[]): Promise<PlatformAdGroup[]>;
   listKeywords(campaignExternalIds: string[]): Promise<PlatformKeyword[]>;
   listNegativeKeywords(campaignExternalIds: string[]): Promise<PlatformNegativeKeyword[]>;
+  listProductTargets(campaignExternalIds: string[]): Promise<PlatformProductTarget[]>;
+  listNegativeProductTargets(
+    campaignExternalIds: string[],
+  ): Promise<PlatformNegativeProductTarget[]>;
   report(
     kind: ReportKind,
     startDate: string,
@@ -102,6 +131,9 @@ export interface Connector {
   createKeywords(items: KeywordCreate[]): Promise<MutationResult[]>;
   updateKeywords(items: KeywordUpdate[]): Promise<MutationResult[]>;
   createNegativeKeywords(items: NegativeCreate[]): Promise<MutationResult[]>;
+  createProductTargets(items: ProductTargetCreate[]): Promise<MutationResult[]>;
+  updateProductTargets(items: ProductTargetUpdate[]): Promise<MutationResult[]>;
+  createNegativeProductTargets(items: NegativeProductTargetCreate[]): Promise<MutationResult[]>;
   updateCampaigns(items: CampaignUpdate[]): Promise<MutationResult[]>;
 }
 

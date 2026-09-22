@@ -88,11 +88,15 @@ export function AmazonReports({ account }: { account: AdAccount }) {
               <strong>
                 {job.kind === 'advertisedProduct'
                   ? 'Advertised products'
-                  : job.kind === 'searchTerm'
-                    ? 'Search terms'
-                    : job.kind === 'keyword'
-                      ? 'Keywords'
-                      : 'Campaigns'}
+                  : job.kind === 'productSearchTerm'
+                    ? 'Product-target search terms'
+                    : job.kind === 'productTarget'
+                      ? 'Product targets'
+                      : job.kind === 'searchTerm'
+                        ? 'Search terms'
+                        : job.kind === 'keyword'
+                          ? 'Keywords'
+                          : 'Campaigns'}
               </strong>
               <Badge
                 kind={

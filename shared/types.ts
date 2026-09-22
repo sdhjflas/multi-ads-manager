@@ -393,7 +393,14 @@ export interface SyncHealth {
   lastAttemptAt: string | null;
   lastSuccessAt: string | null;
   watermarkDate: string | null;
-  coverage: { campaigns: number; keywords: number; negatives: number; searchTerms: number };
+  coverage: {
+    campaigns: number;
+    keywords: number;
+    negatives: number;
+    productTargets: number;
+    negativeProductTargets: number;
+    searchTerms: number;
+  };
 }
 
 export interface AdAccount {
@@ -456,12 +463,40 @@ export interface PlatformNegativeKeyword {
   matchType: NegativeMatch;
   state: PlatformState;
 }
+export interface PlatformTargetExpression {
+  type: string;
+  value: string | null;
+}
+export interface PlatformProductTarget {
+  externalId: string;
+  campaignExternalId: string;
+  adGroupExternalId: string;
+  expressionType: 'auto' | 'manual';
+  expression: PlatformTargetExpression[];
+  /** Stable operator label derived from the platform expression. */
+  label: string;
+  /** Present only for a single, directly verifiable ASIN_SAME_AS expression. */
+  asin: string | null;
+  state: PlatformState;
+  bidCents: number | null;
+}
+export interface PlatformNegativeProductTarget {
+  externalId: string;
+  campaignExternalId: string;
+  adGroupExternalId: string | null;
+  expression: PlatformTargetExpression[];
+  label: string;
+  asin: string | null;
+  state: PlatformState;
+}
 export interface PlatformSnapshot {
   observedAt: string;
   campaigns: PlatformCampaign[];
   adGroups: PlatformAdGroup[];
   keywords: PlatformKeyword[];
   negatives: PlatformNegativeKeyword[];
+  productTargets: PlatformProductTarget[];
+  negativeProductTargets: PlatformNegativeProductTarget[];
 }
 
 export interface SearchTerm {
@@ -472,6 +507,8 @@ export interface SearchTerm {
   keywordText: string;
   matchType: KeywordMatch | 'auto';
   adGroupExternalId: string;
+  /** Missing on records created before product-target reporting was enabled. */
+  sourceKind?: 'keyword' | 'product-target';
 }
 export type TermSignal = 'harvest' | 'negative' | 'hold' | 'blocked' | 'already-exact';
 export type Relevance = 'high' | 'medium' | 'low' | 'irrelevant';
@@ -500,8 +537,31 @@ export type ProposalAction =
       keywordText: string;
       matchType: 'negative-exact';
     }
+  | {
+      type: 'create-product-target';
+      adGroupExternalId: string;
+      asin: string;
+      bidCents: number;
+    }
+  | {
+      type: 'create-negative-product-target';
+      adGroupExternalId: string;
+      asin: string;
+    }
   | { type: 'update-keyword-bid'; keywordExternalId: string; fromCents: number; toCents: number }
   | { type: 'update-keyword-state'; keywordExternalId: string; from: PlatformState; to: 'paused' }
+  | {
+      type: 'update-product-target-bid';
+      targetExternalId: string;
+      fromCents: number;
+      toCents: number;
+    }
+  | {
+      type: 'update-product-target-state';
+      targetExternalId: string;
+      from: PlatformState;
+      to: 'paused';
+    }
   | {
       type: 'update-campaign-budget';
       externalCampaignId: string;
@@ -584,7 +644,7 @@ export interface SyncRun {
   message: string;
   startDate: string;
   endDate: string;
-  rows: { campaigns: number; keywords: number; searchTerms: number };
+  rows: { campaigns: number; keywords: number; productTargets: number; searchTerms: number };
 }
 
 export interface LedgerEntry {
@@ -607,6 +667,7 @@ export interface Scorecard {
   breakEvenAcos: number | null;
   targetAcos: number | null;
   keywords: number;
+  productTargets: number;
   searchTerms: number;
   ledger: { units: number; netReceiptsCents: number; refundsCents: number; days: number } | null;
   /** Ledger receipts minus variable costs, refunds, and ad spend over the selected days. */

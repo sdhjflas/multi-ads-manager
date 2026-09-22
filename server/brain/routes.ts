@@ -285,7 +285,7 @@ export function brainRoutes(app: Express, store: Store) {
       (a) => a.campaign.id === campaignId,
     );
     const terms = (analysis?.terms || [])
-      .filter((t) => t.signal !== 'blocked')
+      .filter((t) => t.signal !== 'blocked' && t.sourceKind !== 'product-target')
       .slice(0, 60)
       .map((t) => t.term);
     if (!terms.length)

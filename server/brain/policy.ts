@@ -155,6 +155,14 @@ export function analyzeCampaign(
     snapshot?.keywords.filter((k) => k.campaignExternalId === link.externalCampaignId) || [];
   const negatives =
     snapshot?.negatives.filter((n) => n.campaignExternalId === link.externalCampaignId) || [];
+  const productTargets =
+    snapshot?.productTargets?.filter(
+      (target) => target.campaignExternalId === link.externalCampaignId,
+    ) || [];
+  const negativeProductTargets =
+    snapshot?.negativeProductTargets?.filter(
+      (target) => target.campaignExternalId === link.externalCampaignId,
+    ) || [];
   if (!snapshot || !platformCampaign)
     blockers.push('Synchronize the account to capture platform state.');
   const openWave = waves.some((w) => w.campaignId === campaign.id && w.status === 'measuring');
@@ -185,6 +193,16 @@ export function analyzeCampaign(
   );
   const negativeTexts = new Set(
     negatives.filter((n) => n.state !== 'archived').map((n) => normalizeTerm(n.text)),
+  );
+  const targetedAsins = new Set(
+    productTargets
+      .filter((target) => target.state !== 'archived' && target.asin)
+      .map((target) => target.asin!),
+  );
+  const negativeAsins = new Set(
+    negativeProductTargets
+      .filter((target) => target.state !== 'archived' && target.asin)
+      .map((target) => target.asin!),
   );
   const make = (
     actionClass: ActionClass,
@@ -383,13 +401,117 @@ export function analyzeCampaign(
     }
   }
 
+  // ---- Direct ASIN target bids and pauses ----------------------------------
+  for (const productTarget of productTargets) {
+    if (!productTarget.asin || productTarget.state !== 'enabled' || productTarget.bidCents === null)
+      continue;
+    const target = targets.find(
+      (candidate) => candidate.id === targetKey(campaign.id, productTarget.externalId),
+    );
+    if (!target) continue;
+    const cellRows = targetRowsById.get(target.id) || [];
+    const label = productTarget.asin;
+    const { decision: d, mature } = cell(campaign, target.id, label, cellRows, now);
+    if (gated || d.kind === 'repair' || d.matureClicks < policy.bidMinClicks) continue;
+    const ev = evidence(`${label} · product target`, d, mature, observedAt);
+    const prior = {
+      bidCents: productTarget.bidCents,
+      state: productTarget.state,
+      asin: productTarget.asin,
+    };
+    const ref = `product-target:${productTarget.externalId}`;
+    const affordable = d.maxAffordableCpcCents;
+    const dailyClicks = avgDaily(cellRows, (r) => r.clicks);
+    if (d.kind === 'scale' && affordable !== null && affordable > productTarget.bidCents) {
+      const to = clamp(
+        Math.min(affordable, Math.floor(productTarget.bidCents * (1 + policy.maxBidStepPct / 100))),
+        2,
+        policy.maxBidCents,
+      );
+      if (to > productTarget.bidCents)
+        proposals.push(
+          make(
+            'bid-up',
+            {
+              type: 'update-product-target-bid',
+              targetExternalId: productTarget.externalId,
+              fromCents: productTarget.bidCents,
+              toCents: to,
+            },
+            ref,
+            `Raise the bid on ASIN ${label} to ${(to / 100).toFixed(2)}`,
+            'Mature target-level evidence supports a bounded move toward the affordable CPC.',
+            ev,
+            prior,
+            (to - productTarget.bidCents) * dailyClicks,
+            null,
+            false,
+          ),
+        );
+    } else if (
+      d.kind === 'reduce' ||
+      (d.probabilityProfitable !== null &&
+        d.probabilityProfitable < 0.3 &&
+        affordable !== null &&
+        affordable < productTarget.bidCents)
+    ) {
+      if (d.matureOrders === 0 && room !== null && mature.spendCents >= room * 3) {
+        proposals.push(
+          make(
+            'pause',
+            {
+              type: 'update-product-target-state',
+              targetExternalId: productTarget.externalId,
+              from: productTarget.state,
+              to: 'paused',
+            },
+            ref,
+            `Pause product target ${label}`,
+            'Mature clicks have produced no purchases and spend exceeds three acquisition allowances.',
+            ev,
+            prior,
+            0,
+            null,
+            false,
+          ),
+        );
+        continue;
+      }
+      const floor = Math.floor(productTarget.bidCents * (1 - policy.maxBidStepPct / 100));
+      const to = clamp(Math.max(floor, affordable ?? floor), 2, policy.maxBidCents);
+      if (to < productTarget.bidCents)
+        proposals.push(
+          make(
+            'bid-down',
+            {
+              type: 'update-product-target-bid',
+              targetExternalId: productTarget.externalId,
+              fromCents: productTarget.bidCents,
+              toCents: to,
+            },
+            ref,
+            `Lower the bid on ASIN ${label} to ${(to / 100).toFixed(2)}`,
+            'The observed target CPC is above the affordable level for its mature conversion evidence.',
+            ev,
+            prior,
+            0,
+            null,
+            false,
+          ),
+        );
+    }
+  }
+
   // ---- Search terms ---------------------------------------------------------
   const terms: SearchTermView[] = [];
   for (const term of termList) {
     const termRows = termRowsById.get(term.id) || [];
     if (!termRows.length) continue;
     const { decision: d, mature } = cell(campaign, term.id, term.term, termRows, now);
-    const cached = store.aiReview<RelevanceReview>(relevanceKey(campaign.id, term.term, brief));
+    const cached =
+      term.sourceKind === 'product-target'
+        ? null
+        : store.aiReview<RelevanceReview>(relevanceKey(campaign.id, term.term, brief));
     const keyword = keywords.find((k) => k.externalId === term.keywordExternalId);
     const view: SearchTermView = {
       ...term,
@@ -415,9 +537,89 @@ export function analyzeCampaign(
       relevance: cached,
     };
     const text = normalizeTerm(term.term);
+    const asin =
+      term.sourceKind === 'product-target' && /^[a-z0-9]{10}$/i.test(term.term)
+        ? term.term.toUpperCase()
+        : null;
     if (text === '*') {
       view.signal = 'blocked';
       view.reason = 'Amazon used a placeholder because no customer search term was available.';
+    } else if (term.sourceKind === 'product-target') {
+      if (!asin) {
+        view.signal = 'blocked';
+        view.reason =
+          'This product-target match is not a direct ASIN. Review it in Amazon before creating a target.';
+      } else if (negativeAsins.has(asin)) {
+        view.signal = 'blocked';
+        view.reason = 'This ASIN is already excluded by a negative product target.';
+      } else if (targetedAsins.has(asin)) {
+        view.signal = 'already-exact';
+        view.reason = 'A direct product target already exists for this ASIN.';
+      } else if (gated || d.kind === 'repair') {
+        view.signal = 'blocked';
+        view.reason = blockers[0] || d.reason;
+      } else if (
+        d.matureClicks >= policy.harvestMinClicks &&
+        d.matureOrders >= policy.harvestMinOrders &&
+        (d.probabilityProfitable ?? 0) >= 0.6
+      ) {
+        view.signal = 'harvest';
+        view.reason =
+          'Mature purchases support a direct ASIN target with its own bid and evidence trail.';
+        const cpc = mature.cpcCents ?? 0;
+        const bid = clamp(
+          Math.floor(Math.min(d.maxAffordableCpcCents ?? cpc, cpc * 1.1 || 40)),
+          2,
+          policy.maxBidCents,
+        );
+        proposals.push(
+          make(
+            'harvest',
+            {
+              type: 'create-product-target',
+              adGroupExternalId: term.adGroupExternalId,
+              asin,
+              bidCents: bid,
+            },
+            `asin:${asin}`,
+            `Harvest ASIN ${asin} as a direct product target`,
+            `${view.reason} Source: ${term.keywordText}. Verify title relevance and marketplace eligibility before authorization.`,
+            evidence(`${asin} · matched ASIN`, d, mature, observedAt),
+            { exists: 0 },
+            avgDaily(termRows, (r) => r.spendCents),
+            null,
+            true,
+          ),
+        );
+      } else if (
+        d.matureClicks >= policy.negativeMinClicks &&
+        d.matureOrders === 0 &&
+        (d.probabilityProfitable ?? 1) <= policy.negativeMaxProbability &&
+        room !== null &&
+        mature.spendCents >= room
+      ) {
+        view.signal = 'negative';
+        view.reason =
+          'Mature clicks produced no purchases after one acquisition allowance. Review the matched book before exclusion.';
+        proposals.push(
+          make(
+            'negative',
+            {
+              type: 'create-negative-product-target',
+              adGroupExternalId: term.adGroupExternalId,
+              asin,
+            },
+            `asin:${asin}`,
+            `Exclude ASIN ${asin}`,
+            `${view.reason} Source: ${term.keywordText}.`,
+            evidence(`${asin} · matched ASIN`, d, mature, observedAt),
+            { exists: 0 },
+            0,
+            null,
+            true,
+          ),
+        );
+      } else view.reason = d.reason;
     } else if (negativeTexts.has(text)) {
       view.signal = 'blocked';
       view.reason = 'Already excluded by a negative keyword.';

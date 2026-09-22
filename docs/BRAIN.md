@@ -1,6 +1,6 @@
 # The brain
 
-The brain is the connected, decision-making layer of Orbit. It synchronizes an advertising account, measures every campaign, keyword, and shopper search term against the campaign's verified unit economics, proposes exact platform changes, and executes them under an explicit operating policy with read-back confirmation. An optional AI provider reviews search-term relevance and explains proposals; it never decides, authorizes, or executes.
+The brain is the connected, decision-making layer of Orbit. It synchronizes an advertising account, measures every campaign, keyword, direct-ASIN product target, and shopper search term against the campaign's verified unit economics, proposes exact platform changes, and executes them under an explicit operating policy with read-back confirmation. An optional AI provider reviews keyword search-term relevance and explains proposals; it never decides, authorizes, or executes.
 
 Open **The brain** in the sidebar. The demo workspace ships with a simulated Amazon Ads account linked to the three sample book campaigns, so every step below can be tried without credentials.
 
@@ -10,25 +10,25 @@ Open **The brain** in the sidebar. The demo workspace ships with a simulated Ama
 sync → evaluate → (AI relevance review) → propose → authorize → reserve → revalidate → send → read back
 ```
 
-1. **Sync** verifies the Amazon profile, then pulls campaigns, ad groups, keywords, and negative keywords plus daily campaign, keyword, search-term, and advertised-product reports. Amazon requests cover at most 31 days and durable jobs survive restarts. Every generation refreshes at least 56 completed account-calendar days for delayed conversion restatements. Live reports do not invent zero rows. Health records `ok`, `partial`, `pending`, `throttled`, or `error`; only a complete `ok` run advances the watermark or permits evaluation.
-2. **Evaluate** applies the same posterior screen used for campaigns (`Beta(1 + purchases, 19 + non-converting clicks)` against `observed CPC / affordable CPC`) to every keyword cell and search term. Recent cohorts inside the attribution window and today are excluded.
+1. **Sync** verifies the Amazon profile, then pulls campaigns, ad groups, keywords, negative keywords, product targets, and negative product targets plus six separate daily report grains. Amazon requests cover at most 31 days and durable jobs survive restarts. Every generation refreshes at least 56 completed account-calendar days for delayed conversion restatements. Live reports do not invent zero rows. Health records `ok`, `partial`, `pending`, `throttled`, or `error`; only a complete `ok` run advances the watermark or permits evaluation.
+2. **Evaluate** applies the same posterior screen used for campaigns (`Beta(1 + purchases, 19 + non-converting clicks)` against `observed CPC / affordable CPC`) to every keyword cell, direct-ASIN target cell, and source-specific search term. Recent cohorts inside the attribution window and today are excluded.
 3. **Propose** turns evidence into one of seven action classes, each with an expected prior platform state, a maximum additional daily commitment, an evidence digest, an idempotency key, and a 72-hour expiry.
 4. **Authorize** by an operator, or by a bounded policy for allowed classes that do not need review.
 5. **Execute** reserves commitment inside the daily envelope, re-reads the platform state and re-runs the evaluation, writes an outbox row, sends the change, and reads it back. A lost response becomes `uncertain` and is reconciled from platform state before anything is retried.
 
 ## Action classes
 
-| Class         | Trigger                                                                                                      | Change                                          | Commitment          |
-| ------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ------------------- |
-| `negative`    | Search term with ≥ 20 mature clicks, zero purchases, P(profitable) ≤ 0.10, spend ≥ one acquisition allowance | Ad-group negative exact keyword                 | 0                   |
-| `harvest`     | Search term with ≥ 15 mature clicks, ≥ 2 purchases, P(profitable) ≥ 0.60, no exact keyword yet               | New exact keyword, bid ≤ affordable CPC and cap | Term's daily spend  |
-| `bid-up`      | Keyword with ≥ 50 mature clicks, campaign screen says scale, affordable CPC above the bid                    | Bid up to +20 % and the affordable CPC          | Δbid × daily clicks |
-| `bid-down`    | Keyword screen says reduce, or P(profitable) < 0.30 with the bid above the affordable CPC                    | Bid down to −20 % or the affordable CPC         | 0                   |
-| `pause`       | Keyword with zero mature purchases and spend ≥ three acquisition allowances                                  | Keyword paused                                  | 0                   |
-| `budget-up`   | Campaign screen says scale                                                                                   | Daily budget up to +20 % and the policy maximum | Δbudget             |
-| `budget-down` | Campaign screen says reduce wasted spend                                                                     | Daily budget −20 %                              | 0                   |
+| Class         | Trigger                                                                                                                       | Change                                          | Commitment          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------- |
+| `negative`    | Keyword term or matched ASIN with ≥ 20 mature clicks, zero purchases, P(profitable) ≤ 0.10, spend ≥ one acquisition allowance | Negative exact keyword or direct-ASIN exclusion | 0                   |
+| `harvest`     | Keyword term or matched ASIN with ≥ 15 mature clicks, ≥ 2 purchases, P(profitable) ≥ 0.60, no equivalent target yet           | New exact keyword or direct-ASIN target         | Source daily spend  |
+| `bid-up`      | Keyword or direct-ASIN target with ≥ 50 mature clicks, campaign screen says scale, affordable CPC above the bid               | Bid up to +20 % and the affordable CPC          | Δbid × daily clicks |
+| `bid-down`    | Keyword or direct-ASIN screen says reduce, or P(profitable) < 0.30 with the bid above the affordable CPC                      | Bid down to −20 % or the affordable CPC         | 0                   |
+| `pause`       | Keyword or direct-ASIN target with zero mature purchases and spend ≥ three acquisition allowances                             | Target paused                                   | 0                   |
+| `budget-up`   | Campaign screen says scale                                                                                                    | Daily budget up to +20 % and the policy maximum | Δbudget             |
+| `budget-down` | Campaign screen says reduce wasted spend                                                                                      | Daily budget −20 %                              | 0                   |
 
-Thresholds are policy fields and can be changed per account. All classes require verified economics, a current report, complete daily coverage, a linked and synchronized platform campaign, and no open measurement wave on the campaign. Search terms that already have an exact keyword or a negative are never proposed twice, and a target with an open proposal or an applied change inside the cooldown is skipped. At most `maxActionsPerRun` proposals are saved per run, most defensive classes first.
+Thresholds are policy fields and can be changed per account. All classes require verified economics, a current report, complete daily coverage, a linked and synchronized platform campaign, and no open measurement wave on the campaign. Search terms that already have an equivalent positive or negative target are never proposed twice, and a target with an open proposal or an applied change inside the cooldown is skipped. Direct-ASIN creation and exclusion always require operator review. At most `maxActionsPerRun` proposals are saved per run, most defensive classes first.
 
 ## Operating modes and the envelope
 
@@ -45,15 +45,15 @@ The **kill switch** cancels every authorized or reserved proposal and blocks exe
 
 Bounded mode on a live Amazon account additionally requires `AMAZON_ADS_WRITES_ENABLED=true` on the server. The simulated account executes writes without that flag so the loop can be rehearsed.
 
-## Harvest and negatives need relevance
+## Relevance review
 
-A harvest is flagged **needs review** until a relevance review exists and is not `low` or `irrelevant`; a negative is flagged when the term was judged `high` relevance. Flagged proposals are never authorized by a bounded policy. With `AI review` enabled and a provider configured, each run asks the model to classify candidate terms against the campaign's **item description** (set in campaign setup). The model sees the item description and the terms only, never performance numbers. Reviews are cached by content hash, so repeated runs do not spend requests, and every AI call counts against `AI_DAILY_REQUEST_LIMIT`.
+A keyword harvest is flagged **needs review** until a relevance review exists and is not `low` or `irrelevant`; a keyword negative is flagged when the term was judged `high` relevance. Matched-ASIN harvest and exclusion proposals always need operator review and are not sent to the language model because an ASIN alone does not prove title relevance or marketplace eligibility. Flagged proposals are never authorized by a bounded policy. With `AI review` enabled and a provider configured, each run asks the model to classify candidate keyword terms against the campaign's **item description** (set in campaign setup). The model sees the item description and the terms only, never performance numbers. Reviews are cached by content hash, so repeated runs do not spend requests, and every AI call counts against `AI_DAILY_REQUEST_LIMIT`.
 
 **Explain with AI** summarizes selected proposals from one campaign with risks and pre-authorization checks. **Review relevance with AI** classifies the visible terms for the selected campaign.
 
 ## Measurement
 
-The scorecard shows, per campaign and for the selected period: spend, attributed sales, ROAS, ACOS beside the target ACOS `(unit contribution − profit reserve) / retail price` and the break-even ACOS, modeled contribution, keyword and search-term counts, the current screening decision, and open proposals.
+The scorecard shows, per campaign and for the selected period: spend, attributed sales, ROAS, ACOS beside the target ACOS `(unit contribution − profit reserve) / retail price` and the break-even ACOS, modeled contribution, keyword/product-target/search-term counts, the current screening decision, and open proposals.
 
 **Ledger contribution** appears when a business ledger exists: `net receipts − units × variable cost − refunds − ad spend` over the period. Import a ledger (`date,units,net_receipts_cents,refunds_cents`) from the scorecard footer in Your workspace. Ledger receipts are reconciled facts and are kept separate from platform attribution; the two are shown side by side, never added.
 
@@ -74,11 +74,11 @@ The request and response contracts follow Amazon's documented v3 report types an
 
 ## Storage
 
-SQLite schema version 6 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, and advertised-product rows. Keyword performance reuses the target tables, so the Target explorer and test waves see synchronized keywords as measured cells.
+SQLite schema version 6 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, and advertised-product rows. Keyword and product-target performance reuse the target tables, so the Target explorer and test waves see both as measured cells.
 
 ## Boundaries
 
 - Proposals are observational screening signals. Applying one does not establish causal lift; confirm important changes in a registered test wave.
 - The daily commitment envelope bounds additional exposure from Orbit's own changes. It is not a cash lock: Amazon can spend above an average daily budget, and pauses are not instantaneous.
-- Only Sponsored Products keyword campaigns are acted on. Product targets, automatic targeting expressions, placements, and Sponsored Brands are not part of this execution adapter.
+- Sponsored Products keywords and single `ASIN_SAME_AS` targets can be acted on. Category, brand, refinement, and automatic expressions are observe-only. Placements and Sponsored Brands are outside this execution adapter.
 - One set of Amazon credentials per server. Multi-tenant authorization, encrypted credential storage, and hosted deployment remain future work.

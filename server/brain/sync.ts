@@ -87,7 +87,7 @@ async function synchronize(
     message: '',
     startDate,
     endDate,
-    rows: { campaigns: 0, keywords: 0, searchTerms: 0 },
+    rows: { campaigns: 0, keywords: 0, productTargets: 0, searchTerms: 0 },
   };
   const finish = (
     status: SyncRun['status'],
@@ -109,6 +109,8 @@ async function synchronize(
             campaigns: snapshot.campaigns.length,
             keywords: snapshot.keywords.length,
             negatives: snapshot.negatives.length,
+            productTargets: snapshot.productTargets.length,
+            negativeProductTargets: snapshot.negativeProductTargets.length,
             searchTerms: run.rows.searchTerms,
           }
         : account.health.coverage,
@@ -146,7 +148,11 @@ async function synchronize(
     if (resumesCurrentGeneration) {
       // Report polling can last hours. Reuse the structure captured for this fixed
       // generation so one-minute job checks do not relist a large account.
-      snapshot = savedSnapshot;
+      snapshot = {
+        ...savedSnapshot,
+        productTargets: savedSnapshot.productTargets || [],
+        negativeProductTargets: savedSnapshot.negativeProductTargets || [],
+      };
     } else {
       if (connector instanceof AmazonAdsConnector) {
         const profile = (await connector.listProfiles()).find(
@@ -165,12 +171,23 @@ async function synchronize(
       }
       const campaigns = await connector.listCampaigns();
       const ids = campaigns.map((c) => c.externalId);
-      const [adGroups, keywords, negatives] = await Promise.all([
-        connector.listAdGroups(ids),
-        connector.listKeywords(ids),
-        connector.listNegativeKeywords(ids),
-      ]);
-      snapshot = { observedAt, campaigns, adGroups, keywords, negatives };
+      const [adGroups, keywords, negatives, productTargets, negativeProductTargets] =
+        await Promise.all([
+          connector.listAdGroups(ids),
+          connector.listKeywords(ids),
+          connector.listNegativeKeywords(ids),
+          connector.listProductTargets(ids),
+          connector.listNegativeProductTargets(ids),
+        ]);
+      snapshot = {
+        observedAt,
+        campaigns,
+        adGroups,
+        keywords,
+        negatives,
+        productTargets,
+        negativeProductTargets,
+      };
     }
   } catch (error) {
     return finish(classify(error), describe(error), null);
@@ -181,10 +198,25 @@ async function synchronize(
       'Structure captured. Link local campaigns to platform campaigns to collect performance.',
       snapshot,
     );
-  let reports: Record<'campaign' | 'keyword' | 'searchTerm' | 'advertisedProduct', ReportRow[]>;
+  let reports: Record<
+    | 'campaign'
+    | 'keyword'
+    | 'searchTerm'
+    | 'productTarget'
+    | 'productSearchTerm'
+    | 'advertisedProduct',
+    ReportRow[]
+  >;
   try {
     const kinds = live
-      ? (['campaign', 'keyword', 'searchTerm', 'advertisedProduct'] as const)
+      ? ([
+          'campaign',
+          'keyword',
+          'searchTerm',
+          'productTarget',
+          'productSearchTerm',
+          'advertisedProduct',
+        ] as const)
       : (['campaign', 'keyword', 'searchTerm'] as const);
     const outcomes = await Promise.allSettled(
       kinds.map((kind) => connector.report(kind, startDate, endDate, account.attributionDays)),
@@ -194,7 +226,14 @@ async function synchronize(
       (r) => !(r.reason instanceof ConnectorError) || r.reason.kind !== 'pending',
     );
     if (hardFailure || failures.length) throw (hardFailure || failures[0]).reason;
-    reports = { campaign: [], keyword: [], searchTerm: [], advertisedProduct: [] };
+    reports = {
+      campaign: [],
+      keyword: [],
+      searchTerm: [],
+      productTarget: [],
+      productSearchTerm: [],
+      advertisedProduct: [],
+    };
     outcomes.forEach((r, index) => {
       if (r.status === 'fulfilled') reports[kinds[index]] = r.value;
     });
@@ -296,23 +335,63 @@ async function synchronize(
           run.rows.keywords += keywordEntries.reduce((n, e) => n + e.rows.length, 0);
         }
 
-        const termCells = new Map<string, { term: SearchTerm; rows: Observation[] }>();
-        for (const row of reports.searchTerm) {
-          if (row.campaignExternalId !== link.externalCampaignId || !row.searchTerm) continue;
+        const productTargetCells = new Map<string, { target: Target; rows: Observation[] }>();
+        for (const row of reports.productTarget) {
+          if (row.campaignExternalId !== link.externalCampaignId || !row.keywordExternalId)
+            continue;
           if (row.date < startDate || row.date > endDate) continue;
-          const keywordExternalId = row.keywordExternalId || 'auto';
-          const term: SearchTerm = {
-            id: searchTermKey(campaign.id, keywordExternalId, row.searchTerm),
+          const target: Target = {
+            id: targetKey(campaign.id, row.keywordExternalId),
             campaignId: campaign.id,
-            term: normalizeTerm(row.searchTerm),
-            keywordExternalId,
-            keywordText: row.keywordText || 'automatic targeting',
-            matchType: row.matchType || 'auto',
-            adGroupExternalId: row.adGroupExternalId || link.adGroupExternalId,
+            sourceId: row.keywordExternalId,
+            label: row.keywordText || row.keywordExternalId,
+            kind: 'product-target',
+            matchType: 'product',
           };
-          const cell = termCells.get(term.id) || { term, rows: [] };
+          const cell = productTargetCells.get(target.id) || { target, rows: [] };
           cell.rows.push(toObservation(campaign.id, row, observedAt));
-          termCells.set(term.id, cell);
+          productTargetCells.set(target.id, cell);
+        }
+        const productTargetEntries = [...productTargetCells.values()].map((cell) => {
+          const priorRefunds = new Map(
+            store.targetRows(cell.target.id).map((r) => [r.date, r.refundsCents]),
+          );
+          return {
+            target: cell.target,
+            rows: cell.rows.map((r) => ({
+              ...r,
+              refundsCents: priorRefunds.get(r.date) || 0,
+            })),
+          };
+        });
+        if (productTargetEntries.length) {
+          store.importTargets(productTargetEntries);
+          run.rows.productTargets += productTargetEntries.reduce((n, e) => n + e.rows.length, 0);
+        }
+
+        const termCells = new Map<string, { term: SearchTerm; rows: Observation[] }>();
+        for (const source of [
+          { kind: 'keyword' as const, rows: reports.searchTerm },
+          { kind: 'product-target' as const, rows: reports.productSearchTerm },
+        ]) {
+          for (const row of source.rows) {
+            if (row.campaignExternalId !== link.externalCampaignId || !row.searchTerm) continue;
+            if (row.date < startDate || row.date > endDate) continue;
+            const keywordExternalId = row.keywordExternalId || 'auto';
+            const term: SearchTerm = {
+              id: searchTermKey(campaign.id, keywordExternalId, row.searchTerm),
+              campaignId: campaign.id,
+              term: normalizeTerm(row.searchTerm),
+              keywordExternalId,
+              keywordText: row.keywordText || 'automatic targeting',
+              matchType: source.kind === 'product-target' ? 'auto' : row.matchType || 'auto',
+              adGroupExternalId: row.adGroupExternalId || link.adGroupExternalId,
+              sourceKind: source.kind,
+            };
+            const cell = termCells.get(term.id) || { term, rows: [] };
+            cell.rows.push(toObservation(campaign.id, row, observedAt));
+            termCells.set(term.id, cell);
+          }
         }
         const termEntries = [...termCells.values()].map((cell) => ({
           term: cell.term,
@@ -344,10 +423,10 @@ async function synchronize(
       }
     });
   } catch (error) {
-    run.rows = { campaigns: 0, keywords: 0, searchTerms: 0 };
+    run.rows = { campaigns: 0, keywords: 0, productTargets: 0, searchTerms: 0 };
     return finish('error', error instanceof AppError ? error.message : describe(error), snapshot);
   }
-  const summary = `${run.rows.campaigns} campaign days, ${run.rows.keywords} keyword days, ${run.rows.searchTerms} search terms from ${startDate} to ${endDate}.`;
+  const summary = `${run.rows.campaigns} campaign days, ${run.rows.keywords} keyword days, ${run.rows.productTargets} product-target days, ${run.rows.searchTerms} search terms from ${startDate} to ${endDate}.`;
   return finish(
     notes.length ? 'partial' : 'ok',
     notes.length ? `${summary} ${[...new Set(notes)].slice(0, 5).join(' ')}` : summary,

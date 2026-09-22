@@ -43,11 +43,11 @@ const statusKind = (s: ProposalStatus) =>
           ? ('repair' as const)
           : ('hold' as const);
 const classLabel: Record<Proposal['actionClass'], string> = {
-  harvest: 'Harvest keyword',
-  negative: 'Negative keyword',
+  harvest: 'Harvest target',
+  negative: 'Add negative',
   'bid-up': 'Raise bid',
   'bid-down': 'Lower bid',
-  pause: 'Pause keyword',
+  pause: 'Pause target',
   'budget-up': 'Raise budget',
   'budget-down': 'Lower budget',
 };
@@ -72,10 +72,16 @@ const change = (p: Proposal) => {
       return `exact · bid ${money(a.bidCents, 2)}`;
     case 'create-negative-keyword':
       return 'negative exact';
+    case 'create-product-target':
+      return `ASIN ${a.asin} · bid ${money(a.bidCents, 2)}`;
+    case 'create-negative-product-target':
+      return `exclude ASIN ${a.asin}`;
     case 'update-keyword-bid':
+    case 'update-product-target-bid':
     case 'update-campaign-budget':
       return `${money(a.fromCents, 2)} → ${money(a.toCents, 2)}`;
     case 'update-keyword-state':
+    case 'update-product-target-state':
       return `${a.from} → ${a.to}`;
   }
 };
@@ -227,6 +233,13 @@ export function BrainPage({
               </span>
               <span>
                 <b>{number(account.health.coverage.negatives)}</b> negatives
+              </span>
+              <span>
+                <b>{number(account.health.coverage.productTargets ?? 0)}</b> product targets
+              </span>
+              <span>
+                <b>{number(account.health.coverage.negativeProductTargets ?? 0)}</b> product
+                exclusions
               </span>
               <span>
                 <b>{number(view.links.filter((l) => l.accountId === account.id).length)}</b> linked
@@ -409,7 +422,7 @@ export function BrainPage({
                 <th className="numeric">ACOS / target</th>
                 <th className="numeric">Modeled contribution</th>
                 <th className="numeric">Ledger contribution</th>
-                <th className="numeric">Keywords · terms</th>
+                <th className="numeric">Keywords · products · terms</th>
                 <th>Decision</th>
                 <th className="numeric">Open</th>
               </tr>
@@ -466,7 +479,7 @@ export function BrainPage({
                       )}
                     </td>
                     <td className="numeric">
-                      {number(s.keywords)} · {number(s.searchTerms)}
+                      {number(s.keywords)} · {number(s.productTargets)} · {number(s.searchTerms)}
                     </td>
                     <td>
                       <Badge kind={s.decision.kind} />
@@ -705,7 +718,8 @@ export function BrainPage({
           <div>
             <h2>Search terms</h2>
             <span className="small-tag">
-              Shopper queries behind each keyword, screened against affordable CPC
+              Shopper queries and matched products behind each target, screened against affordable
+              CPC
             </span>
           </div>
           <div className="brain-proposal-tools">
@@ -736,7 +750,7 @@ export function BrainPage({
             <thead>
               <tr>
                 <th>Search term</th>
-                <th>Source keyword</th>
+                <th>Source target</th>
                 <th className="numeric">Clicks</th>
                 <th className="numeric">Purchases</th>
                 <th className="numeric">Spend</th>
@@ -754,7 +768,10 @@ export function BrainPage({
                     <span className="subtle">{t.campaignName}</span>
                   </td>
                   <td>
-                    {t.keywordText} <span className="match-type">{t.matchType}</span>
+                    {t.keywordText}{' '}
+                    <span className="match-type">
+                      {t.sourceKind === 'product-target' ? 'product' : t.matchType}
+                    </span>
                   </td>
                   <td className="numeric">{number(t.metrics.clicks)}</td>
                   <td className="numeric">{number(t.metrics.orders)}</td>
@@ -778,7 +795,9 @@ export function BrainPage({
                         {t.relevance.level}
                       </Badge>
                     ) : (
-                      <span className="subtle">unreviewed</span>
+                      <span className="subtle">
+                        {t.sourceKind === 'product-target' ? 'operator check' : 'unreviewed'}
+                      </span>
                     )}
                   </td>
                   <td>

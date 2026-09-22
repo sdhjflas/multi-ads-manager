@@ -174,12 +174,43 @@ async function currentState(
       );
       return { exists: found ? 1 : 0, ...(found ? { externalId: found.externalId } : {}) };
     }
+    case 'create-product-target': {
+      const targets = await connector.listProductTargets([campaignId]);
+      const action = p.action;
+      const found = targets.find(
+        (target) =>
+          target.adGroupExternalId === action.adGroupExternalId &&
+          target.asin === action.asin &&
+          target.state !== 'archived',
+      );
+      return { exists: found ? 1 : 0, ...(found ? { externalId: found.externalId } : {}) };
+    }
+    case 'create-negative-product-target': {
+      const targets = await connector.listNegativeProductTargets([campaignId]);
+      const action = p.action;
+      const found = targets.find(
+        (target) =>
+          target.adGroupExternalId === action.adGroupExternalId &&
+          target.asin === action.asin &&
+          target.state !== 'archived',
+      );
+      return { exists: found ? 1 : 0, ...(found ? { externalId: found.externalId } : {}) };
+    }
     case 'update-keyword-bid':
     case 'update-keyword-state': {
       const keywords = await connector.listKeywords([campaignId]);
       const id = p.action.keywordExternalId;
       const found = keywords.find((k) => k.externalId === id);
       return found ? { bidCents: found.bidCents, state: found.state } : null;
+    }
+    case 'update-product-target-bid':
+    case 'update-product-target-state': {
+      const targets = await connector.listProductTargets([campaignId]);
+      const id = p.action.targetExternalId;
+      const found = targets.find((target) => target.externalId === id);
+      return found?.asin
+        ? { bidCents: found.bidCents, state: found.state, asin: found.asin }
+        : null;
     }
     case 'update-campaign-budget': {
       const campaigns = await connector.listCampaigns();
@@ -196,10 +227,16 @@ function intended(p: Proposal): PriorState {
   switch (p.action.type) {
     case 'create-keyword':
     case 'create-negative-keyword':
+    case 'create-product-target':
+    case 'create-negative-product-target':
       return { exists: 1 };
     case 'update-keyword-bid':
       return { bidCents: p.action.toCents };
     case 'update-keyword-state':
+      return { state: p.action.to };
+    case 'update-product-target-bid':
+      return { bidCents: p.action.toCents };
+    case 'update-product-target-state':
       return { state: p.action.to };
     case 'update-campaign-budget':
       return { dailyBudgetCents: p.action.toCents };
@@ -233,6 +270,25 @@ async function send(
         },
       ]);
       break;
+    case 'create-product-target':
+      results = await connector.createProductTargets([
+        {
+          campaignExternalId: link.externalCampaignId,
+          adGroupExternalId: p.action.adGroupExternalId,
+          asin: p.action.asin,
+          bidCents: p.action.bidCents,
+        },
+      ]);
+      break;
+    case 'create-negative-product-target':
+      results = await connector.createNegativeProductTargets([
+        {
+          campaignExternalId: link.externalCampaignId,
+          adGroupExternalId: p.action.adGroupExternalId,
+          asin: p.action.asin,
+        },
+      ]);
+      break;
     case 'update-keyword-bid':
       results = await connector.updateKeywords([
         {
@@ -246,6 +302,24 @@ async function send(
       results = await connector.updateKeywords([
         {
           externalId: p.action.keywordExternalId,
+          campaignExternalId: link.externalCampaignId,
+          state: p.action.to,
+        },
+      ]);
+      break;
+    case 'update-product-target-bid':
+      results = await connector.updateProductTargets([
+        {
+          externalId: p.action.targetExternalId,
+          campaignExternalId: link.externalCampaignId,
+          bidCents: p.action.toCents,
+        },
+      ]);
+      break;
+    case 'update-product-target-state':
+      results = await connector.updateProductTargets([
+        {
+          externalId: p.action.targetExternalId,
           campaignExternalId: link.externalCampaignId,
           state: p.action.to,
         },
@@ -277,6 +351,8 @@ function applyToSnapshot(
   const snapshot = store.snapshot(account.id);
   if (!snapshot) return;
   const next: PlatformSnapshot = structuredClone(snapshot);
+  next.productTargets ||= [];
+  next.negativeProductTargets ||= [];
   const readBackId =
     typeof p.readBack?.externalId === 'string'
       ? p.readBack.externalId
@@ -305,6 +381,32 @@ function applyToSnapshot(
           state: 'enabled',
         });
       break;
+    case 'create-product-target':
+      if (!next.productTargets.some((target) => target.externalId === readBackId))
+        next.productTargets.push({
+          externalId: readBackId,
+          campaignExternalId,
+          adGroupExternalId: p.action.adGroupExternalId,
+          expressionType: 'manual',
+          expression: [{ type: 'ASIN_SAME_AS', value: p.action.asin }],
+          label: `ASIN_SAME_AS=${p.action.asin}`,
+          asin: p.action.asin,
+          state: 'enabled',
+          bidCents: p.action.bidCents,
+        });
+      break;
+    case 'create-negative-product-target':
+      if (!next.negativeProductTargets.some((target) => target.externalId === readBackId))
+        next.negativeProductTargets.push({
+          externalId: readBackId,
+          campaignExternalId,
+          adGroupExternalId: p.action.adGroupExternalId,
+          expression: [{ type: 'ASIN_SAME_AS', value: p.action.asin }],
+          label: `ASIN_SAME_AS=${p.action.asin}`,
+          asin: p.action.asin,
+          state: 'enabled',
+        });
+      break;
     case 'update-keyword-bid': {
       const id = p.action.keywordExternalId;
       const k = next.keywords.find(
@@ -319,6 +421,24 @@ function applyToSnapshot(
         (x) => x.externalId === id && x.campaignExternalId === campaignExternalId,
       );
       if (k) k.state = p.action.to;
+      break;
+    }
+    case 'update-product-target-bid': {
+      const id = p.action.targetExternalId;
+      const target = next.productTargets.find(
+        (candidate) =>
+          candidate.externalId === id && candidate.campaignExternalId === campaignExternalId,
+      );
+      if (target) target.bidCents = p.action.toCents;
+      break;
+    }
+    case 'update-product-target-state': {
+      const id = p.action.targetExternalId;
+      const target = next.productTargets.find(
+        (candidate) =>
+          candidate.externalId === id && candidate.campaignExternalId === campaignExternalId,
+      );
+      if (target) target.state = p.action.to;
       break;
     }
     case 'update-campaign-budget': {
@@ -680,7 +800,9 @@ async function cycleBrain(
     for (const analysis of analyses) {
       const candidates = analysis.proposals
         .filter(
-          (p) => (p.actionClass === 'harvest' || p.actionClass === 'negative') && !p.relevance,
+          (p) =>
+            (p.action.type === 'create-keyword' || p.action.type === 'create-negative-keyword') &&
+            !p.relevance,
         )
         .map((p) => p.targetRef.slice(5));
       if (!candidates.length) continue;

@@ -21,9 +21,10 @@ import {
   runBrain,
   setKillSwitch,
 } from '../server/brain/execution.js';
-import { syncAccount } from '../server/brain/sync.js';
+import { searchTermKey, syncAccount } from '../server/brain/sync.js';
 import type { SandboxConnector, SandboxState } from '../server/connectors/sandbox.js';
 import type { Proposal } from '../shared/types.js';
+import { targetKey } from '../server/targets.js';
 
 let store: Store;
 const now = new Date();
@@ -185,9 +186,176 @@ describe('policy engine', () => {
       analysis.terms.every((t) => t.signal === 'blocked' || t.signal === 'already-exact'),
     ).toBe(true);
   });
+  it('changes direct-ASIN targets and keeps complex product expressions observe-only', () => {
+    const campaignId = 'demo-home';
+    const link = store
+      .links('demo-sandbox')
+      .find((candidate) => candidate.campaignId === campaignId)!;
+    const snapshot = store.snapshot('demo-sandbox')!;
+    const replaced = snapshot.keywords.filter(
+      (keyword) => keyword.campaignExternalId === link.externalCampaignId,
+    );
+    snapshot.keywords = snapshot.keywords.filter(
+      (keyword) => keyword.campaignExternalId !== link.externalCampaignId,
+    );
+    snapshot.productTargets = replaced.map((keyword, index) => ({
+      externalId: keyword.externalId,
+      campaignExternalId: keyword.campaignExternalId,
+      adGroupExternalId: keyword.adGroupExternalId,
+      expressionType: 'manual' as const,
+      expression: [{ type: 'ASIN_SAME_AS', value: `B${String(index).padStart(9, '0')}` }],
+      label: `ASIN_SAME_AS=B${String(index).padStart(9, '0')}`,
+      asin: `B${String(index).padStart(9, '0')}`,
+      state: keyword.state,
+      bidCents: keyword.bidCents,
+    }));
+    store.saveSnapshot('demo-sandbox', snapshot);
+    const direct = analyzeAccount(store, account(), store.reportingTime('demo')).find(
+      (candidate) => candidate.campaign.id === campaignId,
+    )!;
+    expect(replaced.length).toBeGreaterThan(0);
+    const directChanges = direct.proposals.filter(
+      (proposal) =>
+        proposal.action.type === 'update-product-target-bid' ||
+        proposal.action.type === 'update-product-target-state',
+    );
+    expect(directChanges.length).toBeGreaterThan(0);
+    expect(
+      directChanges.every((proposal) => typeof proposal.expectedPriorState.asin === 'string'),
+    ).toBe(true);
+    snapshot.productTargets = snapshot.productTargets.map((target, index) => ({
+      ...target,
+      expressionType: index === 0 ? ('auto' as const) : ('manual' as const),
+      expression: [
+        {
+          type: index === 0 ? 'QUERY_HIGH_REL_MATCHES' : 'ASIN_CATEGORY_SAME_AS',
+          value: index === 0 ? null : `category-${index}`,
+        },
+      ],
+      label: index === 0 ? 'QUERY_HIGH_REL_MATCHES' : `ASIN_CATEGORY_SAME_AS=category-${index}`,
+      asin: null,
+    }));
+    store.saveSnapshot('demo-sandbox', snapshot);
+    const complex = analyzeAccount(store, account(), store.reportingTime('demo')).find(
+      (candidate) => candidate.campaign.id === campaignId,
+    )!;
+    expect(
+      complex.proposals.some(
+        (proposal) =>
+          proposal.action.type === 'update-product-target-bid' ||
+          proposal.action.type === 'update-product-target-state',
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('execution outbox', () => {
+  it('turns a wasteful matched ASIN into a reviewed negative product target with read-back', async () => {
+    const campaignId = 'demo-home';
+    const source = store
+      .searchTerms(campaignId)
+      .find((term) => term.term === 'free nature wallpapers')!;
+    const wasteRows = store.searchTermRows(source.id);
+    expect(wasteRows.length).toBeGreaterThan(20);
+    store.transaction(() => {
+      store.db
+        .prepare(
+          "DELETE FROM search_term_observations WHERE term_id IN (SELECT id FROM search_terms WHERE campaign_id=? AND json_extract(body,'$.keywordExternalId')=?)",
+        )
+        .run(campaignId, 'sample-cell-1');
+      store.db
+        .prepare(
+          "DELETE FROM search_terms WHERE campaign_id=? AND json_extract(body,'$.keywordExternalId')=?",
+        )
+        .run(campaignId, 'sample-cell-1');
+      store.db
+        .prepare('DELETE FROM target_observations WHERE target_id=?')
+        .run(targetKey(campaignId, 'sample-cell-1'));
+      store.db
+        .prepare('DELETE FROM targets WHERE id=?')
+        .run(targetKey(campaignId, 'sample-cell-1'));
+      store.importTargets([
+        {
+          target: {
+            id: targetKey(campaignId, 'pt-1'),
+            campaignId,
+            sourceId: 'pt-1',
+            label: 'ASIN_SAME_AS=B012345678',
+            kind: 'product-target',
+            matchType: 'product',
+          },
+          rows: wasteRows,
+        },
+      ]);
+      store.importSearchTerms([
+        {
+          term: {
+            id: searchTermKey(campaignId, 'pt-1', 'B087654321'),
+            campaignId,
+            term: 'b087654321',
+            keywordExternalId: 'pt-1',
+            keywordText: 'ASIN_SAME_AS=B012345678',
+            matchType: 'auto',
+            adGroupExternalId: store.links('demo-sandbox').find((l) => l.campaignId === campaignId)!
+              .adGroupExternalId,
+            sourceKind: 'product-target',
+          },
+          rows: wasteRows,
+        },
+      ]);
+      const snapshot = store.snapshot('demo-sandbox')!;
+      snapshot.keywords = snapshot.keywords.filter(
+        (keyword) => keyword.externalId !== 'sample-cell-1',
+      );
+      snapshot.productTargets = [
+        {
+          externalId: 'pt-1',
+          campaignExternalId: store.links('demo-sandbox').find((l) => l.campaignId === campaignId)!
+            .externalCampaignId,
+          adGroupExternalId: store.links('demo-sandbox').find((l) => l.campaignId === campaignId)!
+            .adGroupExternalId,
+          expressionType: 'manual',
+          expression: [{ type: 'ASIN_SAME_AS', value: 'B012345678' }],
+          label: 'ASIN_SAME_AS=B012345678',
+          asin: 'B012345678',
+          state: 'enabled',
+          bidCents: 50,
+        },
+      ];
+      snapshot.negativeProductTargets = [];
+      store.saveSnapshot('demo-sandbox', snapshot);
+      const state = store.sandboxState<SandboxState>('demo-sandbox')!;
+      const remote = state.campaigns.find(
+        (campaign) =>
+          campaign.externalId ===
+          store.links('demo-sandbox').find((l) => l.campaignId === campaignId)!.externalCampaignId,
+      )!;
+      remote.productTargets = [
+        { externalId: 'pt-1', asin: 'B012345678', state: 'enabled', bidCents: 50 },
+      ];
+      remote.negativeProductTargets = [];
+      store.saveSandboxState('demo-sandbox', state);
+    });
+    const proposal = analyzeAccount(store, account(), store.reportingTime('demo'))
+      .flatMap((analysis) => analysis.proposals)
+      .find(
+        (candidate) =>
+          candidate.action.type === 'create-negative-product-target' &&
+          candidate.action.asin === 'B087654321',
+      );
+    expect(proposal).toMatchObject({ actionClass: 'negative', needsReview: true });
+    store.saveProposal(proposal!);
+    authorizeProposal(store, account(), proposal!.id, 'operator', now);
+    const result = await executeProposal(store, account(), sandbox(), proposal!.id, now);
+    expect(result.proposal.status).toBe('applied');
+    expect(
+      (
+        await sandbox().listNegativeProductTargets([
+          store.links('demo-sandbox').find((l) => l.campaignId === campaignId)!.externalCampaignId,
+        ])
+      ).some((target) => target.asin === 'B087654321'),
+    ).toBe(true);
+  });
   it('cancels a reviewed change after the operating policy changes', async () => {
     const p = byClass('bid-up')[0];
     authorizeProposal(store, account(), p.id, 'operator', now);
@@ -402,6 +570,7 @@ describe('workspace accounts and API', () => {
     );
     expect(home.linked).toBe(true);
     expect(home.keywords).toBe(3);
+    expect(home.productTargets).toBe(0);
     expect(home.metrics.roas).toBeGreaterThan(0);
     const atlas = res.body.scorecards.find(
       (s: { campaignId: string }) => s.campaignId === 'demo-atlas',

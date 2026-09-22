@@ -58,7 +58,19 @@ See [Reporting hub](REPORTING.md). Live OAuth, automated collection, native Meta
 - Bulk book catalog and individual format editor with same-ASIN units, net-receipt economics, fixed 56-day loss allowances, daily budget ceilings, ASIN/campaign reconciliation, and mixed-title automation holds.
 - Background and pending-report cycles, browser journeys, 500-title scale coverage, and regression coverage for restarts, throttling, timezones, partial data, drift, envelopes, policy changes, kill switch, and lost responses.
 
-See [The brain](BRAIN.md) and [Amazon API contract](AMAZON_API.md). Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, product-target and placement actions, independent receipt/royalty reconciliation, and a live supervised pilot.
+See [The brain](BRAIN.md) and [Amazon API contract](AMAZON_API.md).
+
+## Milestone 0.5 — implemented direct-ASIN product intelligence
+
+- Paginated Sponsored Products target and negative-target snapshots with strict expression schemas.
+- Separate targeting and search-term report jobs for keyword and product-expression evidence, keeping their measured cells distinct.
+- Matched-ASIN harvest and exclusion proposals with mature profit/loss gates, duplicate protection, and mandatory operator review.
+- Direct `ASIN_SAME_AS` bid and pause proposals under the same affordability, evidence, cooldown, and commitment controls as keywords.
+- Exact v3 create/update payloads, outbox delivery, platform read-back, uncertain-result reconciliation, and snapshot updates for product targets.
+- Observe-only handling for automatic, category, brand, and refinement expressions; malformed ASINs, IDs, and bids are rejected before a write request.
+- Dashboard coverage for targets and exclusions, source-specific search-term labels, six-grain report progress, and regression coverage through the simulated connector.
+
+Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, placement and complex product-expression actions, independent receipt/royalty reconciliation, and a live supervised pilot.
 
 ## Milestone 1 — connected observation, two equal tracks
 

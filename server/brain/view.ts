@@ -36,7 +36,12 @@ export function brainView(
   const platform: Record<string, PlatformSnapshot> = {};
   for (const account of accounts) {
     const snapshot = store.snapshot(account.id);
-    if (snapshot) platform[account.id] = snapshot;
+    if (snapshot)
+      platform[account.id] = {
+        ...snapshot,
+        productTargets: snapshot.productTargets || [],
+        negativeProductTargets: snapshot.negativeProductTargets || [],
+      };
   }
   const analyses = accounts.flatMap((account) => analyzeAccount(store, account, clock, days));
   const analysesByCampaign = new Map(analyses.map((analysis) => [analysis.campaign.id, analysis]));
@@ -89,6 +94,10 @@ export function brainView(
       keywords:
         snapshot?.keywords.filter((k) => k.campaignExternalId === link?.externalCampaignId)
           .length ?? 0,
+      productTargets:
+        snapshot?.productTargets.filter(
+          (target) => target.campaignExternalId === link?.externalCampaignId,
+        ).length ?? 0,
       searchTerms: analysis?.terms.length ?? 0,
       ledger,
       ledgerContributionCents:

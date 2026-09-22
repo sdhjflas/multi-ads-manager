@@ -77,36 +77,52 @@ export function reportConfiguration(kind: ReportKind, attributionDays: number) {
     `purchases${attributionDays}d`,
     `sales${attributionDays}d`,
   ];
-  const configuration =
-    kind === 'campaign'
-      ? { reportTypeId: 'spCampaigns', groupBy: ['campaign'], columns: common }
-      : kind === 'advertisedProduct'
-        ? {
-            reportTypeId: 'spAdvertisedProduct',
-            groupBy: ['advertiser'],
-            columns: [
-              ...common,
-              'adGroupId',
-              'adId',
-              'advertisedAsin',
-              `purchasesSameSku${attributionDays}d`,
-              `unitsSoldSameSku${attributionDays}d`,
-              `attributedSalesSameSku${attributionDays}d`,
-            ],
-          }
-        : {
-            reportTypeId: kind === 'keyword' ? 'spTargeting' : 'spSearchTerm',
-            groupBy: [kind === 'keyword' ? 'targeting' : 'searchTerm'],
-            columns: [
-              ...common,
-              'adGroupId',
-              'keywordId',
-              'keyword',
-              'matchType',
-              ...(kind === 'searchTerm' ? ['searchTerm'] : []),
-            ],
-            filters: [{ field: 'keywordType', values: ['BROAD', 'PHRASE', 'EXACT'] }],
-          };
+  let configuration: {
+    reportTypeId: string;
+    groupBy: string[];
+    columns: string[];
+    filters?: { field: string; values: string[] }[];
+  };
+  if (kind === 'campaign')
+    configuration = { reportTypeId: 'spCampaigns', groupBy: ['campaign'], columns: common };
+  else if (kind === 'advertisedProduct')
+    configuration = {
+      reportTypeId: 'spAdvertisedProduct',
+      groupBy: ['advertiser'],
+      columns: [
+        ...common,
+        'adGroupId',
+        'adId',
+        'advertisedAsin',
+        `purchasesSameSku${attributionDays}d`,
+        `unitsSoldSameSku${attributionDays}d`,
+        `attributedSalesSameSku${attributionDays}d`,
+      ],
+    };
+  else {
+    const product = kind === 'productTarget' || kind === 'productSearchTerm';
+    const searchTerm = kind === 'searchTerm' || kind === 'productSearchTerm';
+    configuration = {
+      reportTypeId: searchTerm ? 'spSearchTerm' : 'spTargeting',
+      groupBy: [searchTerm ? 'searchTerm' : 'targeting'],
+      columns: [
+        ...common,
+        'adGroupId',
+        'keywordId',
+        product ? 'targeting' : 'keyword',
+        ...(product ? [] : ['matchType']),
+        ...(searchTerm ? ['searchTerm'] : []),
+      ],
+      filters: [
+        {
+          field: 'keywordType',
+          values: product
+            ? ['TARGETING_EXPRESSION', 'TARGETING_EXPRESSION_PREDEFINED']
+            : ['BROAD', 'PHRASE', 'EXACT'],
+        },
+      ],
+    };
+  }
   return {
     adProduct: 'SPONSORED_PRODUCTS',
     timeUnit: 'DAILY',
@@ -130,7 +146,7 @@ export const reportJobKey = (
         startDate,
         endDate,
         configuration: reportConfiguration(kind, attributionDays),
-        version: 2,
+        version: 3,
       }),
     )
     .digest('hex');
@@ -222,14 +238,20 @@ export function decodeReport(
       throw new ConnectorError('invalid', 'A report row falls outside the requested dates.');
     const optionalId = (name: string) =>
       r[name] === undefined || r[name] === null ? null : amazonId.parse(r[name]);
+    const product = kind === 'productTarget' || kind === 'productSearchTerm';
     const result: ReportRow = {
       date: parsed.data.date,
       campaignExternalId: parsed.data.campaignId,
       adGroupExternalId: optionalId('adGroupId'),
       keywordExternalId: optionalId('keywordId'),
-      keywordText: r.keyword === undefined ? null : z.string().max(1000).parse(r.keyword),
-      matchType:
-        r.matchType === undefined
+      keywordText: product
+        ? z.string().min(1).max(1000).parse(r.targeting)
+        : r.keyword === undefined
+          ? null
+          : z.string().max(1000).parse(r.keyword),
+      matchType: product
+        ? 'auto'
+        : r.matchType === undefined
           ? null
           : (z.enum(['EXACT', 'PHRASE', 'BROAD']).parse(r.matchType).toLowerCase() as
               'exact' | 'phrase' | 'broad'),
@@ -242,14 +264,17 @@ export function decodeReport(
       salesCents: Math.round(amount.parse(r[sales]) * 100),
     };
     if (
-      (kind === 'keyword' || kind === 'searchTerm') &&
+      (kind === 'keyword' ||
+        kind === 'searchTerm' ||
+        kind === 'productTarget' ||
+        kind === 'productSearchTerm') &&
       (!result.adGroupExternalId ||
         !result.keywordExternalId ||
         !result.keywordText ||
         !result.matchType)
     )
-      throw new ConnectorError('invalid', 'Keyword reporting identity is incomplete.');
-    if (kind === 'searchTerm' && !result.searchTerm)
+      throw new ConnectorError('invalid', 'Target reporting identity is incomplete.');
+    if ((kind === 'searchTerm' || kind === 'productSearchTerm') && !result.searchTerm)
       throw new ConnectorError('invalid', 'Search-term text is missing.');
     if (kind === 'advertisedProduct') {
       result.advertisedAsin = z

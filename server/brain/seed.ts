@@ -35,7 +35,14 @@ export async function seedBrain(store: Store) {
       lastAttemptAt: null,
       lastSuccessAt: null,
       watermarkDate: null,
-      coverage: { campaigns: 0, keywords: 0, negatives: 0, searchTerms: 0 },
+      coverage: {
+        campaigns: 0,
+        keywords: 0,
+        negatives: 0,
+        productTargets: 0,
+        negativeProductTargets: 0,
+        searchTerms: 0,
+      },
     },
     createdAt: now.toISOString(),
   };

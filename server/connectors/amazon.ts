@@ -4,6 +4,8 @@ import {
   adGroupEntity,
   keywordEntity,
   negativeEntity,
+  productTargetEntity,
+  negativeProductTargetEntity,
   entities,
 } from './amazon-entities.js';
 import { dayAt } from '../engine.js';
@@ -16,6 +18,9 @@ import type {
   PlatformCampaign,
   PlatformKeyword,
   PlatformNegativeKeyword,
+  PlatformNegativeProductTarget,
+  PlatformProductTarget,
+  PlatformTargetExpression,
   PlatformState,
 } from '../../shared/types.js';
 import {
@@ -26,6 +31,9 @@ import {
   type KeywordUpdate,
   type MutationResult,
   type NegativeCreate,
+  type NegativeProductTargetCreate,
+  type ProductTargetCreate,
+  type ProductTargetUpdate,
   type ReportKind,
   type ReportRow,
 } from './connector.js';
@@ -80,6 +88,61 @@ const state = (value: string): PlatformState =>
 const upperState = (value: PlatformState) =>
   value === 'enabled' ? 'ENABLED' : value === 'paused' ? 'PAUSED' : 'ARCHIVED';
 const cents = (value: unknown) => Math.round(Number(value || 0) * 100);
+const directAsin = (expression: PlatformTargetExpression[]) =>
+  expression.length === 1 &&
+  expression[0].type === 'ASIN_SAME_AS' &&
+  expression[0].value &&
+  /^[A-Z0-9]{10}$/.test(expression[0].value)
+    ? expression[0].value
+    : null;
+const expressionLabel = (expression: PlatformTargetExpression[]) =>
+  expression.map((part) => `${part.type}${part.value ? `=${part.value}` : ''}`).join(' + ');
+const writableAsin = z.string().regex(/^[A-Z0-9]{10}$/);
+const writableBidCents = z.number().int().min(2).max(100_000);
+const productTargetCreates = z
+  .array(
+    z
+      .object({
+        campaignExternalId: amazonId,
+        adGroupExternalId: amazonId,
+        asin: writableAsin,
+        bidCents: writableBidCents,
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(100);
+const productTargetUpdates = z
+  .array(
+    z
+      .object({
+        externalId: amazonId,
+        campaignExternalId: amazonId.optional(),
+        bidCents: writableBidCents.optional(),
+        state: z.enum(['enabled', 'paused', 'archived']).optional(),
+      })
+      .strict()
+      .refine((value) => value.bidCents !== undefined || value.state !== undefined),
+  )
+  .min(1)
+  .max(100);
+const negativeProductTargetCreates = z
+  .array(
+    z
+      .object({
+        campaignExternalId: amazonId,
+        adGroupExternalId: amazonId,
+        asin: writableAsin,
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(100);
+function mutationInput<T>(schema: z.ZodType<T>, value: unknown, message: string): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new ConnectorError('invalid', message);
+  return parsed.data;
+}
 export class AmazonAdsConnector implements Connector {
   readonly kind = 'amazon-ads' as const;
   readonly writesEnabled: boolean;
@@ -396,6 +459,62 @@ export class AmazonAdsConnector implements Connector {
       state: state(n.state),
     }));
   }
+  async listProductTargets(ids: string[]): Promise<PlatformProductTarget[]> {
+    const items = entities(
+      productTargetEntity,
+      await this.listByCampaigns(
+        '/sp/targets/list',
+        'application/vnd.spTargetingClause.v3+json',
+        'targetingClauses',
+        ids,
+      ),
+      'targetId',
+    );
+    return items.map((target) => {
+      const expression = target.expression.map((part) => ({
+        type: part.type,
+        value: part.value || null,
+      }));
+      return {
+        externalId: target.targetId,
+        campaignExternalId: target.campaignId,
+        adGroupExternalId: target.adGroupId,
+        expressionType: target.expressionType === 'AUTO' ? ('auto' as const) : ('manual' as const),
+        expression,
+        label: expressionLabel(expression),
+        asin: directAsin(expression),
+        state: state(target.state),
+        bidCents: target.bid === undefined ? null : cents(target.bid),
+      };
+    });
+  }
+  async listNegativeProductTargets(ids: string[]): Promise<PlatformNegativeProductTarget[]> {
+    const items = entities(
+      negativeProductTargetEntity,
+      await this.listByCampaigns(
+        '/sp/negativeTargets/list',
+        'application/vnd.spNegativeTargetingClause.v3+json',
+        'negativeTargetingClauses',
+        ids,
+      ),
+      'targetId',
+    );
+    return items.map((target) => {
+      const expression = target.expression.map((part) => ({
+        type: part.type,
+        value: part.value || null,
+      }));
+      return {
+        externalId: target.targetId,
+        campaignExternalId: target.campaignId,
+        adGroupExternalId: target.adGroupId || null,
+        expression,
+        label: expressionLabel(expression),
+        asin: directAsin(expression),
+        state: state(target.state),
+      };
+    });
+  }
 
   async listProfiles() {
     const data = await this.call<unknown>('GET', '/v2/profiles', undefined, null, false);
@@ -602,6 +721,78 @@ export class AmazonAdsConnector implements Connector {
       true,
     );
     return this.results(body, 'negativeKeywords', 'negativeKeywordId', items.length);
+  }
+  async createProductTargets(items: ProductTargetCreate[]): Promise<MutationResult[]> {
+    this.writable();
+    const valid = mutationInput(
+      productTargetCreates,
+      items,
+      'Product targets require numeric Amazon IDs, an uppercase 10-character ASIN, and a bid from $0.02 to $1,000.',
+    );
+    const body = await this.call<unknown>(
+      'POST',
+      '/sp/targets',
+      {
+        targetingClauses: valid.map((target) => ({
+          campaignId: target.campaignExternalId,
+          adGroupId: target.adGroupExternalId,
+          expressionType: 'MANUAL',
+          expression: [{ type: 'ASIN_SAME_AS', value: target.asin }],
+          state: 'ENABLED',
+          bid: target.bidCents / 100,
+        })),
+      },
+      'application/vnd.spTargetingClause.v3+json',
+      true,
+    );
+    return this.results(body, 'targetingClauses', 'targetId', valid.length);
+  }
+  async updateProductTargets(items: ProductTargetUpdate[]): Promise<MutationResult[]> {
+    this.writable();
+    const valid = mutationInput(
+      productTargetUpdates,
+      items,
+      'Product-target updates require a numeric target ID and either a valid bid or state.',
+    );
+    const body = await this.call<unknown>(
+      'PUT',
+      '/sp/targets',
+      {
+        targetingClauses: valid.map((target) => ({
+          targetId: target.externalId,
+          ...(target.bidCents !== undefined ? { bid: target.bidCents / 100 } : {}),
+          ...(target.state !== undefined ? { state: upperState(target.state) } : {}),
+        })),
+      },
+      'application/vnd.spTargetingClause.v3+json',
+      true,
+    );
+    return this.results(body, 'targetingClauses', 'targetId', valid.length);
+  }
+  async createNegativeProductTargets(
+    items: NegativeProductTargetCreate[],
+  ): Promise<MutationResult[]> {
+    this.writable();
+    const valid = mutationInput(
+      negativeProductTargetCreates,
+      items,
+      'Negative product targets require numeric Amazon IDs and an uppercase 10-character ASIN.',
+    );
+    const body = await this.call<unknown>(
+      'POST',
+      '/sp/negativeTargets',
+      {
+        negativeTargetingClauses: valid.map((target) => ({
+          campaignId: target.campaignExternalId,
+          adGroupId: target.adGroupExternalId,
+          expression: [{ type: 'ASIN_SAME_AS', value: target.asin }],
+          state: 'ENABLED',
+        })),
+      },
+      'application/vnd.spNegativeTargetingClause.v3+json',
+      true,
+    );
+    return this.results(body, 'negativeTargetingClauses', 'targetId', valid.length);
   }
   async updateCampaigns(items: CampaignUpdate[]): Promise<MutationResult[]> {
     this.writable();

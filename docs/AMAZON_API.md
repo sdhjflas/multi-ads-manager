@@ -20,22 +20,26 @@ Sources: [retrieve profiles](https://advertising.amazon.com/API/docs/en-us/guide
 
 ## Sponsored Products reads
 
-The connector uses Amazon's v3 media types and paginated list endpoints for campaigns, ad groups, keywords, and negative keywords. Responses are schema-checked. Unsafe numeric IDs, unknown states or match types, missing money, repeated pagination tokens, repeated entities, and pagination beyond the local bound reject the entire snapshot. Campaign filters are chunked so a portfolio with hundreds of campaigns does not create an oversized request.
+The connector uses Amazon's v3 media types and paginated list endpoints for campaigns, ad groups, keywords, negative keywords, targeting clauses, and negative targeting clauses. Responses are schema-checked. Unsafe numeric IDs, unknown states or match types, malformed targeting expressions, missing money, repeated pagination tokens, repeated entities, and pagination beyond the local bound reject the entire snapshot. Campaign filters are chunked so a portfolio with hundreds of campaigns does not create an oversized request.
 
-Orbit collects four daily Reporting v3 products:
+Orbit collects six daily Reporting v3 products:
 
-| Orbit grain        | Report type           | Group        | Purpose                                       |
-| ------------------ | --------------------- | ------------ | --------------------------------------------- |
-| Campaign           | `spCampaigns`         | `campaign`   | Parent spend, purchases, and sales            |
-| Keyword            | `spTargeting`         | `targeting`  | Exact, phrase, and broad keyword performance  |
-| Search term        | `spSearchTerm`        | `searchTerm` | Customer-query discovery and waste review     |
-| Advertised product | `spAdvertisedProduct` | `advertiser` | ASIN and same-SKU purchases, units, and sales |
+| Orbit grain                | Report type           | Group        | Purpose                                                |
+| -------------------------- | --------------------- | ------------ | ------------------------------------------------------ |
+| Campaign                   | `spCampaigns`         | `campaign`   | Parent spend, purchases, and sales                     |
+| Keyword                    | `spTargeting`         | `targeting`  | Exact, phrase, and broad keyword performance           |
+| Keyword search term        | `spSearchTerm`        | `searchTerm` | Customer-query discovery and keyword waste review      |
+| Product target             | `spTargeting`         | `targeting`  | Product and automatic-target expression performance    |
+| Product-target search term | `spSearchTerm`        | `searchTerm` | Matched-ASIN discovery and product-target waste review |
+| Advertised product         | `spAdvertisedProduct` | `advertiser` | ASIN and same-SKU purchases, units, and sales          |
 
-Keyword and search-term reports explicitly filter to `BROAD`, `PHRASE`, and `EXACT`. Orbit does not reinterpret automatic or product targeting as a keyword. Amazon's `*` search-term placeholder is retained but never harvested or negated.
+Keyword reports explicitly filter to `BROAD`, `PHRASE`, and `EXACT`. Product-target reports use the separate `TARGETING_EXPRESSION` and `TARGETING_EXPRESSION_PREDEFINED` filters. This keeps keyword and product evidence in different measured cells. Amazon's `*` search-term placeholder is retained but never harvested or negated.
+
+Orbit preserves every product-target expression for inspection. A single uppercase `ASIN_SAME_AS` value is also recorded as a directly verifiable ASIN. Category, brand, refinement, and automatic expressions are never converted into an ASIN and remain observe-only.
 
 The advertised-product report keeps total attributed purchases and sales separate from same-SKU purchases, units, and sales. Only same-ASIN units feed a book's modeled contribution. Other-SKU sales, Kindle page-read royalties, and series read-through never become title income automatically.
 
-Sources: [Reporting v3 start guide](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/get-started), [campaign reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/campaign), [targeting reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/targeting), [search-term reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/search-term), [advertised-product reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/advertised-product), [book reporting guide](https://advertising.amazon.com/library/guides/book-advertising-reporting).
+Sources: [Reporting v3 start guide](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/get-started), [campaign reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/campaign), [targeting reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/targeting), [search-term reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/search-term), [advertised-product reports](https://advertising.amazon.com/API/docs/en-us/guides/reporting/v3/report-types/advertised-product), [product targeting guide](https://advertising.amazon.com/help/GB2JECV9CJK6R6AL), [book reporting guide](https://advertising.amazon.com/library/guides/book-advertising-reporting).
 
 ## Durable report jobs
 
@@ -43,7 +47,7 @@ Amazon Reporting v3 is asynchronous. Orbit splits each refresh into inclusive wi
 
 Each request is stored before its create call. Its report ID, state, dates, exact configuration, polling time, generation time, row count, and diagnostic message survive process restarts. Pending jobs use bounded polling delays and the background worker checks them every minute. A complete report is accepted only when its retrieved dates, report type, group, columns, filters, time unit, and format match the saved request.
 
-The entity snapshot captured at the start of a report generation is reused while those jobs are pending, avoiding repeated full-account listing calls on every poll. Once all four grains are validated and committed, Orbit keeps compact job metadata and releases the duplicate rolling-window payloads; normalized observations remain durable.
+The entity snapshot captured at the start of a report generation is reused while those jobs are pending, avoiding repeated full-account listing calls on every poll. Once all six grains are validated and committed, Orbit keeps compact job metadata and releases the duplicate rolling-window payloads; normalized observations remain durable.
 
 Amazon documents report generation times up to three hours, `425` for a duplicate create request, and `429` throttling. Orbit honors numeric or HTTP-date `Retry-After`. If a duplicate response identifies the prior report UUID, Orbit resumes it. If a create response is lost and no report ID can be recovered, the job becomes `uncertain`; the operator must attach the existing ID or deliberately retry the saved contract. Orbit never silently submits a second job after an ambiguous create.
 
@@ -63,7 +67,7 @@ Sources: [Reporting FAQ](https://advertising.amazon.com/API/docs/en-us/guides/re
 
 ## Writes and authority
 
-The adapter can create exact keywords and negative exact keywords, update keyword bids or state, and update Sponsored Products campaign budgets. Live writes require all of the following:
+The adapter can create exact keywords, negative exact keywords, direct-ASIN product targets, and negative direct-ASIN product targets. It can update keyword and direct-ASIN target bids or state, and update Sponsored Products campaign budgets. Product-target payloads are limited to numeric Amazon IDs, uppercase 10-character ASINs, and bounded integer-cent bids before any request reaches the network. Live writes require all of the following:
 
 1. server-level `AMAZON_ADS_WRITES_ENABLED=true`;
 2. a supervised or bounded account policy;
@@ -75,7 +79,9 @@ The adapter can create exact keywords and negative exact keywords, update keywor
 
 The execution outbox is written before the API mutation. Lost responses become uncertain and require read-back. Every accepted mutation is read back from Amazon before Orbit marks it applied. Daily budgets are not hard cash caps: Amazon can vary daily delivery under its budgeting policy, and a pause is not instantaneous.
 
-Source: [Sponsored ads daily budgeting policy](https://advertising.amazon.com/resources/whats-new/sponsored-ads-daily-budgeting-policy-and-options).
+Matched ASINs can become a reviewed direct product target after mature profitable evidence, or a reviewed negative product target after mature loss evidence. Both actions always require an operator because the Ads API report does not prove title relevance or retail eligibility. Existing direct-ASIN bid and pause changes can use the normal policy envelope. Orbit does not write category, brand, refinement, or automatic targeting expressions.
+
+Sources: [Sponsored ads daily budgeting policy](https://advertising.amazon.com/resources/whats-new/sponsored-ads-daily-budgeting-policy-and-options), [Amazon Ads advanced tools/Postman repository](https://github.com/amzn/ads-advanced-tools-docs), [Amazon search-term guidance](https://advertising.amazon.com/help/G3HEFZYWZF84NPS9).
 
 ## Unified reporting migration watch
 
@@ -85,4 +91,4 @@ Source: [Amazon unified reporting announcement](https://advertising.amazon.com/r
 
 ## Pilot validation
 
-Before using recommendations on real books, confirm the configured credentials are for the Amazon Ads API, discover the expected USD profile, and compare one report of each grain with the advertising console. Verify timezone, attribution window, campaign and ad-group identity, ASIN coverage, same-SKU units, and totals. Run in observe mode for at least one attribution window. Reconcile actual publisher receipts, costs, returns, and availability separately; attributed retail sales are not publisher profit.
+Before using recommendations on real books, confirm the configured credentials are for the Amazon Ads API, discover the expected USD profile, and compare one report of each of the six grains with the advertising console. Verify timezone, attribution window, campaign and ad-group identity, target expressions, matched ASINs, advertised-ASIN coverage, same-SKU units, and totals. Run in observe mode for at least one attribution window. Reconcile actual publisher receipts, costs, returns, and availability separately; attributed retail sales are not publisher profit.

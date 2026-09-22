@@ -1216,7 +1216,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.4<span className="footer-dot">·</span>Local advisory mode
+              Orbit v0.5<span className="footer-dot">·</span>Local advisory mode
               <ShieldCheck size={12} />
             </span>
           </footer>

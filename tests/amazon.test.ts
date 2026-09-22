@@ -1,7 +1,7 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { AmazonAdsConnector, amazonConfigFromEnv } from '../server/connectors/amazon.js';
-import { reportConfiguration } from '../server/connectors/amazon-reports.js';
+import { decodeReport, reportConfiguration } from '../server/connectors/amazon-reports.js';
 import { ConnectorError } from '../server/connectors/connector.js';
 
 const config = {
@@ -114,6 +114,130 @@ describe('Amazon Ads adapter', () => {
     expect(fetcher.mock.calls.filter(([u]) => String(u).endsWith('/auth/o2/token'))).toHaveLength(
       1,
     );
+  });
+  it('reads direct and automatic product targets without treating expressions as keywords', async () => {
+    const { c } = connector((url) => {
+      if (url.endsWith('/auth/o2/token')) return token();
+      if (url.endsWith('/sp/targets/list'))
+        return json({
+          targetingClauses: [
+            {
+              targetId: '10',
+              campaignId: '9',
+              adGroupId: '5',
+              expressionType: 'MANUAL',
+              expression: [{ type: 'ASIN_SAME_AS', value: 'B012345678' }],
+              state: 'ENABLED',
+              bid: 0.45,
+            },
+            {
+              targetId: '11',
+              campaignId: '9',
+              adGroupId: '5',
+              expressionType: 'AUTO',
+              expression: [{ type: 'QUERY_HIGH_REL_MATCHES' }],
+              state: 'ENABLED',
+            },
+          ],
+        });
+      if (url.endsWith('/sp/negativeTargets/list'))
+        return json({
+          negativeTargetingClauses: [
+            {
+              targetId: '12',
+              campaignId: '9',
+              adGroupId: '5',
+              expression: [{ type: 'ASIN_SAME_AS', value: 'B087654321' }],
+              state: 'PAUSED',
+            },
+          ],
+        });
+      return json({}, 404);
+    });
+    expect(await c.listProductTargets(['9'])).toEqual([
+      expect.objectContaining({
+        externalId: '10',
+        asin: 'B012345678',
+        expressionType: 'manual',
+        bidCents: 45,
+      }),
+      expect.objectContaining({
+        externalId: '11',
+        asin: null,
+        expressionType: 'auto',
+        bidCents: null,
+      }),
+    ]);
+    expect(await c.listNegativeProductTargets(['9'])).toEqual([
+      expect.objectContaining({ externalId: '12', asin: 'B087654321', state: 'paused' }),
+    ]);
+  });
+  it('uses separate report contracts for keyword and product-target discovery', () => {
+    expect(reportConfiguration('productTarget', 14)).toMatchObject({
+      reportTypeId: 'spTargeting',
+      groupBy: ['targeting'],
+      filters: [
+        {
+          field: 'keywordType',
+          values: ['TARGETING_EXPRESSION', 'TARGETING_EXPRESSION_PREDEFINED'],
+        },
+      ],
+    });
+    expect(reportConfiguration('productSearchTerm', 14).columns).toContain('targeting');
+    expect(reportConfiguration('productSearchTerm', 14).columns).not.toContain('keyword');
+    const rows = decodeReport(
+      Buffer.from(
+        JSON.stringify([
+          {
+            date: '2026-09-01',
+            campaignId: '9',
+            adGroupId: '5',
+            keywordId: '10',
+            targeting: 'asin="B012345678"',
+            searchTerm: 'B087654321',
+            impressions: 25,
+            clicks: 3,
+            cost: 1.2,
+            purchases14d: 1,
+            sales14d: 12,
+          },
+        ]),
+      ),
+      'productSearchTerm',
+      '2026-09-01',
+      '2026-09-01',
+      14,
+    );
+    expect(rows[0]).toMatchObject({
+      keywordExternalId: '10',
+      keywordText: 'asin="B012345678"',
+      matchType: 'auto',
+      searchTerm: 'B087654321',
+    });
+  });
+  it('rejects unsafe product-target writes before making a network request', async () => {
+    const { c, fetcher } = connector(() => {
+      throw new Error('The network must not be reached for invalid input.');
+    });
+    await expect(
+      c.createProductTargets([
+        {
+          campaignExternalId: '9',
+          adGroupExternalId: '5',
+          asin: 'b012345678',
+          bidCents: 55,
+        },
+      ]),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(c.updateProductTargets([{ externalId: '88', bidCents: 1 }])).rejects.toMatchObject(
+      { kind: 'invalid' },
+    );
+    await expect(
+      c.createNegativeProductTargets([
+        { campaignExternalId: '9', adGroupExternalId: '5', asin: 'NOT-ASIN' },
+      ]),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it('creates, polls, downloads, and decodes a gzip search-term report', async () => {
     let polls = 0;
@@ -253,6 +377,42 @@ describe('Amazon Ads adapter', () => {
         });
         return json({ campaigns: { success: [{ index: 0, campaignId: '9' }], error: [] } });
       }
+      if (url.endsWith('/sp/targets') && init.method === 'POST') {
+        expect(body.targetingClauses[0]).toEqual({
+          campaignId: '9',
+          adGroupId: '5',
+          expressionType: 'MANUAL',
+          expression: [{ type: 'ASIN_SAME_AS', value: 'B012345678' }],
+          state: 'ENABLED',
+          bid: 0.55,
+        });
+        return json({
+          targetingClauses: { success: [{ index: 0, targetId: '88' }], error: [] },
+        });
+      }
+      if (url.endsWith('/sp/targets') && init.method === 'PUT') {
+        expect(body.targetingClauses).toEqual([
+          { targetId: '88', bid: 0.42 },
+          { targetId: '90', state: 'PAUSED' },
+        ]);
+        return json({
+          targetingClauses: {
+            success: [
+              { index: 0, targetId: '88' },
+              { index: 1, targetId: '90' },
+            ],
+            error: [],
+          },
+        });
+      }
+      if (url.endsWith('/sp/negativeTargets') && init.method === 'POST') {
+        expect(body.negativeTargetingClauses[0].expression).toEqual([
+          { type: 'ASIN_SAME_AS', value: 'B087654321' },
+        ]);
+        return json({
+          negativeTargetingClauses: { success: [{ index: 0, targetId: '89' }], error: [] },
+        });
+      }
       return json({}, 404);
     });
     const results = await c.updateKeywords([
@@ -275,6 +435,30 @@ describe('Amazon Ads adapter', () => {
     ).toEqual([{ index: 0, ok: true, externalId: '77' }]);
     expect(await c.updateCampaigns([{ externalId: '9', dailyBudgetCents: 1500 }])).toEqual([
       { index: 0, ok: true, externalId: '9' },
+    ]);
+    expect(
+      await c.createProductTargets([
+        {
+          campaignExternalId: '9',
+          adGroupExternalId: '5',
+          asin: 'B012345678',
+          bidCents: 55,
+        },
+      ]),
+    ).toEqual([{ index: 0, ok: true, externalId: '88' }]);
+    expect(
+      await c.createNegativeProductTargets([
+        { campaignExternalId: '9', adGroupExternalId: '5', asin: 'B087654321' },
+      ]),
+    ).toEqual([{ index: 0, ok: true, externalId: '89' }]);
+    expect(
+      await c.updateProductTargets([
+        { externalId: '88', bidCents: 42 },
+        { externalId: '90', state: 'paused' },
+      ]),
+    ).toEqual([
+      { index: 0, ok: true, externalId: '88' },
+      { index: 1, ok: true, externalId: '90' },
     ]);
     const readOnly = new AmazonAdsConnector(
       { ...config, writesEnabled: false },

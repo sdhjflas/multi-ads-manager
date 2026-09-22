@@ -464,7 +464,7 @@ test('runs the brain on the simulated account: authorize, execute, read back, an
   ).toEqual([]);
   await mkdir('.artifacts', { recursive: true });
   await page.screenshot({ path: '.artifacts/brain-desktop.png', fullPage: true });
-  const row = proposals.locator('tbody tr').filter({ hasText: 'Negative keyword' }).first();
+  const row = proposals.locator('tbody tr').filter({ hasText: 'Add negative' }).first();
   await row.getByRole('button', { name: 'Authorize' }).click();
   await expect(page.getByRole('status')).toContainText('Change authorized');
   await row.getByRole('button', { name: 'Execute' }).click();

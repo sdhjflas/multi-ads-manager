@@ -35,6 +35,26 @@ export const negativeEntity = z.object({
   matchType: z.enum(['NEGATIVE_EXACT', 'NEGATIVE_PHRASE']),
   state,
 });
+const targetExpression = z.object({
+  type: z.string().regex(/^[A-Z0-9_]{1,100}$/),
+  value: z.string().min(1).max(1000).optional(),
+});
+export const productTargetEntity = z.object({
+  targetId: amazonId,
+  campaignId: amazonId,
+  adGroupId: amazonId,
+  expressionType: z.enum(['AUTO', 'MANUAL']),
+  expression: z.array(targetExpression).min(1).max(20),
+  state,
+  bid: money.optional(),
+});
+export const negativeProductTargetEntity = z.object({
+  targetId: amazonId,
+  campaignId: amazonId,
+  adGroupId: amazonId.optional(),
+  expression: z.array(targetExpression).min(1).max(20),
+  state,
+});
 
 export function entities<T extends z.ZodType>(
   schema: T,
