@@ -87,9 +87,9 @@ For causal creative confirmation, use actual exclusive experimental arms where t
 
 ### Orders and refunds belong in an independent business ledger
 
-Shopify's integration guidance documents paid-order, update, cancellation, refund, and transaction events useful for reconciliation. Webhooks need retries, deduplication, signature verification, and periodic reconciliation; a webhook notification should not be mistaken for settled cash. [Shopify order integration](https://shopify.dev/docs/apps/build/orders-fulfillment/order-management-apps/enterprise-oms-integration)
+Shopify's current integration documentation establishes a GraphQL Admin API boundary for products, inventory, orders, and refunds. Ordinary order access is limited to the recent window unless Shopify approves `read_all_orders`; SKUs are case-sensitive; and inventory quantities such as available, on-hand, incoming, and committed have different meanings. Webhooks need raw-body HMAC verification, retries, delivery deduplication, out-of-order handling, and periodic API reconciliation. A notification should not be mistaken for settled cash. [Admin API access scopes](https://shopify.dev/docs/apps/build/authentication-authorization/manage-access-scopes), [orders query](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/orders), [inventory item](https://shopify.dev/docs/api/admin-graphql/2026-07/objects/InventoryItem), [webhook verification](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries)
 
-**Our design:** a separate ledger resolves paid order → discounts → refund/return → fulfillment cost → net contribution. Channel attribution stays attached as a modeled relationship. Deduplicated business revenue is not the sum of Meta, TikTok, and other channels' claims.
+**Our design:** a separate ledger resolves paid order → discounts → refund/return → fulfillment cost → net contribution. Channel attribution stays attached as a modeled relationship. Deduplicated business revenue is not the sum of Meta, TikTok, and other channels' claims. The manual v0.7 contract, readiness controls, reconciliation formula, and future connector boundary are specified in [Product commerce](COMMERCE.md).
 
 ### Exploration and exploitation require a model of uncertainty
 

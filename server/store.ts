@@ -138,7 +138,38 @@ export class Store {
         account_id TEXT NOT NULL REFERENCES accounts(id), campaign_id TEXT NOT NULL, ad_id TEXT NOT NULL,
         date TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(account_id,campaign_id,ad_id,date)
       );
-      PRAGMA user_version = 6;
+      CREATE TABLE IF NOT EXISTS commerce_stores (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')), body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS commerce_stores_scope ON commerce_stores(dataset,id);
+      CREATE TABLE IF NOT EXISTS commerce_products (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        store_id TEXT NOT NULL REFERENCES commerce_stores(id), sku TEXT NOT NULL, body TEXT NOT NULL,
+        UNIQUE(store_id,sku)
+      );
+      CREATE INDEX IF NOT EXISTS commerce_products_scope ON commerce_products(dataset,store_id,sku);
+      CREATE TABLE IF NOT EXISTS commerce_campaigns (
+        campaign_id TEXT PRIMARY KEY REFERENCES campaigns(id),
+        product_id TEXT NOT NULL REFERENCES commerce_products(id)
+      );
+      CREATE INDEX IF NOT EXISTS commerce_campaigns_product ON commerce_campaigns(product_id);
+      CREATE TABLE IF NOT EXISTS commerce_order_lines (
+        store_id TEXT NOT NULL REFERENCES commerce_stores(id), order_ref TEXT NOT NULL,
+        line_ref TEXT NOT NULL, sku TEXT NOT NULL, date TEXT NOT NULL, observed_at TEXT NOT NULL,
+        body TEXT NOT NULL, PRIMARY KEY(store_id,order_ref,line_ref)
+      );
+      CREATE INDEX IF NOT EXISTS commerce_order_lines_sku ON commerce_order_lines(store_id,sku,date);
+      CREATE TABLE IF NOT EXISTS commerce_ledger_batches (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        store_id TEXT NOT NULL REFERENCES commerce_stores(id), content_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(store_id,content_hash)
+      );
+      CREATE INDEX IF NOT EXISTS commerce_ledger_batches_scope ON commerce_ledger_batches(dataset,store_id,created_at);
+      CREATE TABLE IF NOT EXISTS commerce_ledger_revisions (
+        batch_id TEXT NOT NULL REFERENCES commerce_ledger_batches(id), position INTEGER NOT NULL,
+        body TEXT NOT NULL, PRIMARY KEY(batch_id,position)
+      );
+      PRAGMA user_version = 7;
     `);
   }
   transaction<T>(fn: () => T): T {

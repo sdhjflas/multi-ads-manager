@@ -5,12 +5,14 @@ import { createExperiment, planVariants } from './planner.js';
 import type { ExperimentInput } from './validation.js';
 import { targetKey } from './targets.js';
 import type { Target } from '../shared/types.js';
+import { seedCommerce } from './seed-commerce.js';
 
 // All titles, performance, economics, accounts, and decisions here are synthetic.
 // No source project customer or financial data is bundled into this public repository.
 export function seedDemo(store: Store, now = new Date()) {
   if (store.campaigns('demo').length) {
     seedTargets(store);
+    seedCommerce(store);
     return;
   }
   const specs = [
@@ -219,6 +221,7 @@ export function seedDemo(store: Store, now = new Date()) {
     );
   });
   seedTargets(store);
+  seedCommerce(store);
 }
 
 function seedTargets(store: Store) {

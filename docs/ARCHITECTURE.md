@@ -68,13 +68,15 @@ For books, keep MANUFACTURING, CONSIGNMENT, Ads attribution, KDP royalties, and 
 
 For products, ingest and reconcile paid orders, discounts, refunds, chargebacks, fulfillment costs, stock, and consent-compatible attribution. Use webhook verification, a durable inbox, idempotency, and periodic source reconciliation.
 
+The v0.7 local product portfolio implements the manual boundary before a live connector: exact store/SKU identity, a complete cost stack, product and inventory gates, aggregate paid-order lines, correction revisions, and a daily cap that prevents platform-attributed orders from exceeding independent paid units. Ledger freshness is SKU-specific. Its positive contribution status is an observational business screen because all product receipts, including organic demand, are compared with linked ad spend. See [Product commerce](COMMERCE.md).
+
 All financial amounts have a currency and integer minor-unit or appropriate fixed-decimal representation. Cross-currency portfolios need documented FX rates, effective dates, and conversion rules. Version unit economics by item, format, contract, and effective date.
 
 ### Reporting comparability
 
 Show settled vs provisional periods explicitly. Compare like-for-like coverage and attribution maturity. A daily spend figure can be current while its conversions are incomplete. A 28-day prior window with two available days is not a valid basis for a percentage improvement.
 
-The initial app uses USD/UTC, static per-purchase economics, campaign/day aggregates, and a fixed click window. It checks complete comparison coverage. Extending those constraints is a schema/mapping task, not a dropdown-only UI change.
+The local app uses USD, static per-purchase economics, campaign/day aggregates, explicit reporting timezones, and a fixed click window per campaign. It checks complete comparison coverage. Extending those constraints is a schema/mapping task, not a dropdown-only UI change.
 
 ## 4. The learning loop
 

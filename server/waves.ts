@@ -13,10 +13,12 @@ import type {
   WaveEvaluation,
   WaveView,
 } from '../shared/types.js';
+import type { CommerceProductView } from '../shared/commerce.js';
 import { dayAt, metrics, probabilityAbove } from './engine.js';
 import { Store } from './store.js';
 import { targetKey, targetsExceedCampaign } from './targets.js';
 import { AppError, datasetSchema, dateOnly } from './validation.js';
+import { commerceCampaignBlockers, commerceCampaignViews } from './commerce.js';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const date = z.string().refine(dateOnly, 'Use a real date in YYYY-MM-DD format.');
@@ -123,6 +125,8 @@ export function registerWave(
     throw new AppError(
       'Verify campaign economics, tracking, and availability, and resume local monitoring first.',
     );
+  const productBlockers = commerceCampaignBlockers(store, campaign, now);
+  if (productBlockers.length) throw new AppError(productBlockers[0]);
   if (input.lossLimitCents > input.budgetCents)
     throw new AppError('The loss boundary cannot exceed the wave budget.');
   if (input.arms.filter((a) => a.role === 'baseline').length !== 1)
@@ -266,8 +270,14 @@ export function evaluateWave(
   store: Store,
   wave: TestWave,
   now = store.reportingTime(wave.dataset),
+  campaignViews?: ReadonlyMap<string, CommerceProductView>,
 ): WaveEvaluation {
   const current = store.campaign(wave.dataset, wave.campaignId);
+  const resolvedCommerceViews =
+    current.vertical === 'commerce'
+      ? (campaignViews ?? commerceCampaignViews(store, wave.dataset, now))
+      : undefined;
+  const productState = resolvedCommerceViews?.get(current.id) ?? null;
   const snapshot = wave.campaignSnapshot;
   const today = dayAt(now, 0, snapshot.reportingTimezone);
   const through = [
@@ -294,6 +304,7 @@ export function evaluateWave(
     );
   if (!current.economicsVerified || !current.trackingVerified || !current.supplyReady)
     blockers.push('Verify current campaign economics, tracking, and availability.');
+  blockers.push(...commerceCampaignBlockers(store, current, now, resolvedCommerceViews));
   if (current.status === 'paused') blockers.push('Local campaign monitoring is paused.');
   if (expected && parent.length !== expected)
     blockers.push('The parent campaign is missing daily rows in this test window.');
@@ -362,6 +373,7 @@ export function evaluateWave(
   const dataId = hash({
     plan: wave.planId,
     economics: economics(current),
+    ...(current.vertical === 'commerce' ? { productState } : {}),
     parent: facts(parent),
     arms: sources.map((s) => ({ target: s.arm.target.id, rows: facts(s.rows) })),
   });
@@ -467,11 +479,22 @@ export function evaluateWave(
   };
 }
 
-export function getWaveViews(store: Store, dataset: Dataset): WaveView[] {
+export function getWaveViews(
+  store: Store,
+  dataset: Dataset,
+  campaignViews?: ReadonlyMap<string, CommerceProductView>,
+): WaveView[] {
   const now = store.reportingTime(dataset);
-  return store
-    .records<TestWave>(dataset, 'wave', 200)
-    .map((w) => ({ ...w, evaluation: evaluateWave(store, w, now) }));
+  const waves = store.records<TestWave>(dataset, 'wave', 200);
+  const resolvedViews =
+    campaignViews ??
+    (waves.some((wave) => wave.campaignSnapshot.vertical === 'commerce')
+      ? commerceCampaignViews(store, dataset, now)
+      : undefined);
+  return waves.map((wave) => ({
+    ...wave,
+    evaluation: evaluateWave(store, wave, now, resolvedViews),
+  }));
 }
 
 export function getLearningViews(

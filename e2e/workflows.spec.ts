@@ -558,3 +558,145 @@ test('imports book formats, reviews economics, and keeps the portfolio usable on
   ).toEqual([]);
   await page.screenshot({ path: '.artifacts/books-mobile.png', fullPage: true });
 });
+
+test('reconciles product readiness, paid orders, and campaign economics by SKU', async ({
+  page,
+}) => {
+  await page.goto('/#commerce');
+  await expect(
+    page.getByRole('heading', { name: 'Know which products have earned more demand.' }),
+  ).toBeVisible();
+  const productPanel = page.locator('section.panel').filter({
+    has: page.getByRole('heading', { name: /Product portfolio/ }),
+  });
+  await expect(productPanel.locator('.commerce-table tbody tr')).toHaveCount(3);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: '.artifacts/commerce-desktop.png', fullPage: true });
+
+  await page.getByLabel('Data workspace').selectOption('workspace');
+  await page.getByRole('button', { name: 'Add store', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Store name').fill('Browser product store');
+  await dialog.getByLabel('Reporting timezone').fill('UTC');
+  await dialog.getByRole('button', { name: 'Register store' }).click();
+  await expect(page.getByRole('status')).toContainText('Commerce store registered');
+
+  const portfolio = await (
+    await page.request.get('/api/commerce?dataset=workspace&query=Browser%20product%20store')
+  ).json();
+  const storeId = portfolio.stores.find(
+    (value: { name: string }) => value.name === 'Browser product store',
+  ).id;
+  const headers = { 'X-Orbit-Request': '1' };
+  const product = await page.request.post('/api/commerce/products', {
+    headers,
+    data: {
+      dataset: 'workspace',
+      storeId,
+      product: {
+        productRef: 'browser-sequential-indicators',
+        sku: 'BROWSER-SEQ-001',
+        name: 'Browser Sequential Indicators',
+        variantName: 'Smoked',
+        externalVariantId: '',
+        inventoryMode: 'stocked',
+        retailPriceCents: 7900,
+        plannedNetReceiptCents: 7600,
+        unitCostCents: 2400,
+        inboundFreightCents: 300,
+        dutiesAndFeesCents: 100,
+        packagingCostCents: 200,
+        paymentFeeAllowanceCents: 250,
+        outboundFulfillmentCents: 500,
+        returnAllowanceCents: 200,
+        warrantyAllowanceCents: 100,
+        supportAllowanceCents: 50,
+        profitReserveCents: 1000,
+        lossLimitCents: 20000,
+        dailyBudgetLimitCents: 5000,
+        economicsVerified: true,
+        commercialRightsApproved: true,
+        productEvidenceApproved: true,
+        claimsApproved: true,
+        trackingVerified: true,
+        fulfillmentReady: true,
+        releaseApproved: true,
+        routeVerified: true,
+        preorderTermsApproved: false,
+        availableUnits: 100,
+        committedUnits: 5,
+        quarantinedUnits: 0,
+        supplierCapacityUnits: null,
+        preorderCapacityUnits: null,
+        safetyStockUnits: 20,
+        reorderPointUnits: 30,
+        inventoryVerifiedAt: new Date().toISOString(),
+        inventoryMaxAgeHours: 168,
+      },
+    },
+  });
+  expect(product.status()).toBe(201);
+  const campaign = await page.request.post('/api/campaigns', {
+    headers,
+    data: {
+      dataset: 'workspace',
+      name: 'Browser product conversion test',
+      vertical: 'commerce',
+      channel: 'meta',
+      entityName: 'Browser Sequential Indicators',
+      accountName: 'Browser Meta account',
+      retailPriceCents: 7900,
+      netReceiptCents: 7600,
+      variableCostCents: 4100,
+      targetProfitCents: 1000,
+      dailyBudgetCents: 2000,
+      totalLearningBudgetCents: 20000,
+      attributionDays: 7,
+      economicsVerified: true,
+      trackingVerified: true,
+      supplyReady: true,
+    },
+  });
+  expect(campaign.status()).toBe(201);
+  await page.reload();
+  await page.getByLabel('Data workspace').selectOption('workspace');
+  await expect(
+    page.getByRole('button', { name: 'Browser Sequential Indicators', exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'Import paid orders', exact: true }).click();
+  await dialog.getByLabel('Store').selectOption(storeId);
+  await dialog.getByLabel('Source name').fill('Browser paid-order refresh');
+  const orderDate = new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10);
+  const orderCsv = [
+    'order_ref,line_ref,date,sku,units,net_receipts_cents,refunds_cents,chargebacks_cents,observed_at',
+    `browser-order-1,line-1,${orderDate},BROWSER-SEQ-001,2,15200,0,0,${new Date().toISOString()}`,
+  ].join('\n');
+  await dialog.getByLabel('CSV contents').fill(orderCsv);
+  await dialog.getByRole('button', { name: 'Reconcile ledger' }).click();
+  await expect(page.getByRole('status')).toContainText('1 paid lines added');
+  await expect(productPanel.locator('.commerce-table tbody')).toContainText('$152');
+
+  await page.getByRole('button', { name: 'Browser paid-order refresh' }).click();
+  await expect(dialog).toContainText('Paid-order import audit');
+  await expect(dialog).toContainText('BROWSER-SEQ-001');
+  await expect(dialog).toContainText('New line');
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Browser Sequential Indicators', exact: true }).click();
+  await expect(dialog).toContainText('All current product gates pass');
+  await dialog.getByLabel('Product campaign').selectOption((await campaign.json()).id);
+  await dialog.getByRole('button', { name: 'Link or reconcile campaign' }).click();
+  await expect(page.getByRole('status')).toContainText('Campaign and SKU economics reconciled');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: '.artifacts/commerce-mobile.png', fullPage: true });
+});

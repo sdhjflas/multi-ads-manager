@@ -14,6 +14,11 @@ import {
 import type { WaveInput } from '../server/waves.js';
 import { targetKey } from '../server/targets.js';
 import type { Campaign, Experiment, Observation, TestWave, Target } from '../shared/types.js';
+import {
+  createCommerceStore,
+  linkCommerceCampaign,
+  saveCommerceProducts,
+} from '../server/commerce.js';
 
 let store: Store;
 let app: ReturnType<typeof createApp>;
@@ -165,6 +170,60 @@ describe('frozen test plans and reservations', () => {
       channel: 'meta' as const,
     };
     store.saveCampaign(product);
+    const commerceStore = createCommerceStore(
+      store,
+      'workspace',
+      { name: 'Product store', provider: 'manual', timezone: 'UTC', maxDataAgeHours: 72 },
+      now,
+    );
+    const [sku] = saveCommerceProducts(
+      store,
+      commerceStore,
+      [
+        {
+          productRef: 'product',
+          sku: 'PRODUCT-001',
+          name: 'Synthetic product',
+          variantName: '',
+          externalVariantId: '',
+          inventoryMode: 'stocked',
+          retailPriceCents: 2000,
+          plannedNetReceiptCents: 1000,
+          unitCostCents: 400,
+          inboundFreightCents: 0,
+          dutiesAndFeesCents: 0,
+          packagingCostCents: 0,
+          paymentFeeAllowanceCents: 0,
+          outboundFulfillmentCents: 0,
+          returnAllowanceCents: 0,
+          warrantyAllowanceCents: 0,
+          supportAllowanceCents: 0,
+          profitReserveCents: 100,
+          lossLimitCents: 1_000_000,
+          dailyBudgetLimitCents: 20_000,
+          economicsVerified: true,
+          commercialRightsApproved: true,
+          productEvidenceApproved: true,
+          claimsApproved: true,
+          trackingVerified: true,
+          fulfillmentReady: true,
+          releaseApproved: true,
+          routeVerified: true,
+          preorderTermsApproved: false,
+          availableUnits: 100,
+          committedUnits: 0,
+          quarantinedUnits: 0,
+          supplierCapacityUnits: null,
+          preorderCapacityUnits: null,
+          safetyStockUnits: 10,
+          reorderPointUnits: 20,
+          inventoryVerifiedAt: now.toISOString(),
+          inventoryMaxAgeHours: 168,
+        },
+      ],
+      now,
+    );
+    linkCommerceCampaign(store, sku, product, now);
     store.putRecord('experiment', {
       ...exp,
       id: 'product-exp',

@@ -79,7 +79,19 @@ See [The brain](BRAIN.md) and [Amazon API contract](AMAZON_API.md).
 - Review slates preserve representation across available action classes, then use evidence-aware defensive priority for remaining slots; bounded execution uses defensive priority across the account.
 - The account dashboard exposes active budgets beside the ceiling, and the policy editor versions changes to that ceiling with the rest of the operating envelope.
 
-Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, placement and complex product-expression actions, independent receipt/royalty reconciliation, and a live supervised pilot.
+## Milestone 0.7 — implemented product profit and readiness controls
+
+- A dedicated product portfolio with stable store, product, exact-SKU, variant, and campaign mappings; bulk import supports 500-SKU regression coverage and 20,000 SKUs per store.
+- A complete landed-cost stack, planned net receipts, profit reserve, fixed 56-day learning-loss allowance, and per-SKU daily budget ceiling. Missing values fail closed.
+- Separate media, fulfillment, release, stock, supplier-direct, and preorder gates derived from the Enthusiast operating model. Future or stale inventory observations and unverified capacity cannot authorize demand.
+- An aggregate paid-order ledger with an exact no-PII schema, atomic imports, replay protection, newer-observation corrections, immutable before/after revisions, and case-sensitive SKU validation.
+- Per-day mature attribution capped by independent paid units, SKU-scoped ledger freshness, modeled ledger contribution, and conservative loss/budget holds.
+- Immutable campaign-to-SKU identity, economics reconciliation, and live product blockers applied to dashboard decisions, recorded reviews, exports, and measured test waves.
+- A responsive operator workflow, demo fixtures, accessibility coverage, Shopify GraphQL integration boundary, and API/browser regression coverage.
+
+See [Product commerce](COMMERCE.md).
+
+Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, placement and complex product-expression actions, automated Shopify and publisher settlement reconciliation, and a live supervised pilot.
 
 ## Milestone 1 — connected observation, two equal tracks
 

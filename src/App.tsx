@@ -68,10 +68,12 @@ import { WaveBoard, WaveDetail, WaveForm, LearningLibrary } from './Waves';
 import { ReportingHub } from './Reporting';
 import { BrainPage } from './Brain';
 import { BooksPage } from './Books';
+import { CommercePage } from './Commerce';
 
 type Page =
   | 'overview'
   | 'products'
+  | 'commerce'
   | 'books'
   | 'experiments'
   | 'targets'
@@ -104,6 +106,7 @@ type ModalState =
 const nav: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={18} /> },
   { id: 'products', label: 'Product ads', icon: <ShoppingBag size={18} /> },
+  { id: 'commerce', label: 'Product portfolio', icon: <Boxes size={18} /> },
   { id: 'books', label: 'Amazon books', icon: <BookOpen size={18} /> },
   { id: 'portfolio', label: 'Book portfolio', icon: <CircleDollarSign size={18} /> },
   { id: 'experiments', label: 'Experiment lab', icon: <FlaskConical size={18} /> },
@@ -127,6 +130,11 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
     eyebrow: 'PRODUCT ADVERTISING',
     title: 'Find the details that drive demand.',
     subtitle: 'Creative, audience, and product economics — in the same conversation.',
+  },
+  commerce: {
+    eyebrow: 'THE PROFIT AND READINESS LAYER',
+    title: 'Know which products have earned more demand.',
+    subtitle: 'Paid orders, full unit economics, inventory capacity, and release evidence by SKU.',
   },
   books: {
     eyebrow: 'AMAZON BOOK ADVERTISING',
@@ -940,6 +948,7 @@ export function App() {
               {page === 'portfolio' && (
                 <BooksPage dataset={dataset} query={query} onAccounts={() => navigate('brain')} />
               )}
+              {page === 'commerce' && <CommercePage dataset={dataset} query={query} />}
               {page === 'brain' && (
                 <BrainPage
                   data={data}
@@ -1216,7 +1225,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.6<span className="footer-dot">·</span>Local advisory mode
+              Orbit v0.7<span className="footer-dot">·</span>Local advisory mode
               <ShieldCheck size={12} />
             </span>
           </footer>

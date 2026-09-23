@@ -17,6 +17,8 @@ import { aiProvider, aiStatus } from './ai/provider.js';
 import { generateIdeas } from './ai/tasks.js';
 import { brainRoutes } from './brain/routes.js';
 import { bookRoutes } from './book-routes.js';
+import { commerceRoutes } from './commerce-routes.js';
+import { commerceCampaignViews, gateCommerceDecision } from './commerce.js';
 import { ConnectorError } from './connectors/connector.js';
 import { amazonConfigured } from './connectors/amazon.js';
 import { campaignView, dayAt, decide, metrics, sumMetrics } from './engine.js';
@@ -107,10 +109,22 @@ export function createApp(store: Store) {
     const items = campaigns.map((c) => ({ c, rows: store.observations(c.id) }));
     const ids = new Set(campaigns.map((c) => c.id));
     const config = aiStatus();
-    const waves = getWaveViews(store, dataset).filter((w) => ids.has(w.campaignId));
+    const commerceViews = campaigns.some((campaign) => campaign.vertical === 'commerce')
+      ? commerceCampaignViews(store, dataset, now)
+      : undefined;
+    const waves = getWaveViews(store, dataset, commerceViews).filter((w) => ids.has(w.campaignId));
     const views = items.map(({ c, rows }) => {
       const view = campaignView(c, rows, days, now);
-      return { ...view, decision: holdForOpenWave(view.decision, waves, c.id) };
+      return {
+        ...view,
+        decision: gateCommerceDecision(
+          store,
+          c,
+          holdForOpenWave(view.decision, waves, c.id),
+          now,
+          commerceViews,
+        ),
+      };
     });
     const result: Dashboard = {
       dataset,
@@ -430,9 +444,19 @@ export function createApp(store: Store) {
     const { dataset } = z.object({ dataset: datasetSchema }).strict().parse(req.body);
     const now = store.reportingTime(dataset);
     const waves = store.records<TestWave>(dataset, 'wave', 200);
-    const decisions = store.campaigns(dataset).map((c) => ({
+    const campaigns = store.campaigns(dataset);
+    const commerceViews = campaigns.some((campaign) => campaign.vertical === 'commerce')
+      ? commerceCampaignViews(store, dataset, now)
+      : undefined;
+    const decisions = campaigns.map((c) => ({
       campaignId: c.id,
-      ...holdForOpenWave(decide(c, store.observations(c.id), now), waves, c.id),
+      ...gateCommerceDecision(
+        store,
+        c,
+        holdForOpenWave(decide(c, store.observations(c.id), now), waves, c.id),
+        now,
+        commerceViews,
+      ),
     }));
     store.activity(
       dataset,
@@ -446,10 +470,16 @@ export function createApp(store: Store) {
   app.post('/api/reviews', (req, res) => {
     const input = reviewInput.parse(req.body);
     const campaign = store.campaign(input.dataset, input.campaignId);
-    const decision = holdForOpenWave(
-      decide(campaign, store.observations(campaign.id), store.reportingTime(input.dataset)),
-      store.records<TestWave>(input.dataset, 'wave', 200),
-      campaign.id,
+    const now = store.reportingTime(input.dataset);
+    const decision = gateCommerceDecision(
+      store,
+      campaign,
+      holdForOpenWave(
+        decide(campaign, store.observations(campaign.id), now),
+        store.records<TestWave>(input.dataset, 'wave', 200),
+        campaign.id,
+      ),
+      now,
     );
     if (input.evidenceId !== decision.evidenceId)
       throw new AppError(
@@ -474,31 +504,41 @@ export function createApp(store: Store) {
   reportRoutes(app, store);
   brainRoutes(app, store);
   bookRoutes(app, store);
+  commerceRoutes(app, store);
 
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);
     const now = store.reportingTime(dataset);
     const waves = store.records<TestWave>(dataset, 'wave', 200);
+    const campaigns = store
+      .campaigns(dataset)
+      .filter((c) => vertical === 'all' || c.vertical === vertical);
+    const commerceViews = campaigns.some((campaign) => campaign.vertical === 'commerce')
+      ? commerceCampaignViews(store, dataset, now)
+      : undefined;
     const escape = (v: string | number | null) =>
       `"${String(v ?? '')
         .replace(/^[=+\-@\t\r]/, "'$&")
         .replaceAll('"', '""')}"`;
-    const rows = store
-      .campaigns(dataset)
-      .filter((c) => vertical === 'all' || c.vertical === vertical)
-      .map((c) => {
-        const view = campaignView(c, store.observations(c.id), Number(days), now);
-        return [
-          c.name,
-          c.channel,
-          c.currency,
-          view.metrics.spendCents,
-          view.metrics.salesCents,
-          view.metrics.contributionCents,
-          holdForOpenWave(view.decision, waves, c.id).kind,
-          dataset,
-        ];
-      });
+    const rows = campaigns.map((c) => {
+      const view = campaignView(c, store.observations(c.id), Number(days), now);
+      return [
+        c.name,
+        c.channel,
+        c.currency,
+        view.metrics.spendCents,
+        view.metrics.salesCents,
+        view.metrics.contributionCents,
+        gateCommerceDecision(
+          store,
+          c,
+          holdForOpenWave(view.decision, waves, c.id),
+          now,
+          commerceViews,
+        ).kind,
+        dataset,
+      ];
+    });
     const csv = [
       [
         'campaign',
