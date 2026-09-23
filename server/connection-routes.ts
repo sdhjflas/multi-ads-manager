@@ -113,6 +113,20 @@ export function connectionRoutes(app: Express, service: ConnectionService) {
     res.json(service.revoke(input.dataset, input.clientId, String(req.params.id)));
   });
 
+  app.post('/api/connections/:id/backfill', (req, res) => {
+    const input = scope.extend({ from: z.iso.date() }).strict().parse(req.body);
+    res.status(202).json(
+      service.queueBackfill(input.dataset, input.clientId, String(req.params.id), input.from),
+    );
+  });
+
+  app.post('/api/connection-jobs/:id/retry', (req, res) => {
+    const input = scope.parse(req.body);
+    res.status(202).json(
+      service.retryJob(input.dataset, input.clientId, String(req.params.id)),
+    );
+  });
+
   app.post('/api/connections/:id/oauth/start', (req, res) => {
     const input = scope
       .extend({ shopDomain: z.string().trim().max(120).optional() })

@@ -227,7 +227,62 @@ export class Store {
         delivery_id TEXT NOT NULL, topic TEXT NOT NULL, received_at TEXT NOT NULL,
         PRIMARY KEY(connection_id,delivery_id)
       );
-      PRAGMA user_version = 8;
+      CREATE TABLE IF NOT EXISTS profit_items (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        vertical TEXT NOT NULL CHECK(vertical IN ('commerce','books')),
+        identity_key TEXT NOT NULL, updated_at TEXT NOT NULL, body TEXT NOT NULL,
+        UNIQUE(client_id,vertical,identity_key)
+      );
+      CREATE INDEX IF NOT EXISTS profit_items_scope
+        ON profit_items(dataset,client_id,vertical,updated_at);
+      CREATE TABLE IF NOT EXISTS profit_economics_versions (
+        id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES profit_items(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        effective_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS profit_economics_item
+        ON profit_economics_versions(client_id,item_id,effective_at);
+      CREATE TABLE IF NOT EXISTS profit_mappings (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        source_kind TEXT NOT NULL, external_id TEXT NOT NULL,
+        item_id TEXT NOT NULL REFERENCES profit_items(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL, body TEXT NOT NULL,
+        UNIQUE(connection_id,source_kind,external_id)
+      );
+      CREATE INDEX IF NOT EXISTS profit_mappings_scope
+        ON profit_mappings(dataset,client_id,item_id);
+      CREATE TABLE IF NOT EXISTS profit_budget_pools (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        updated_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS profit_budget_pools_scope
+        ON profit_budget_pools(dataset,client_id,updated_at);
+      CREATE TABLE IF NOT EXISTS profit_optimizer_runs (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS profit_optimizer_runs_scope
+        ON profit_optimizer_runs(dataset,client_id,created_at);
+      CREATE TABLE IF NOT EXISTS connection_amazon_report_jobs (
+        key TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        updated_at TEXT NOT NULL, body TEXT NOT NULL, payload TEXT
+      );
+      CREATE INDEX IF NOT EXISTS connection_amazon_reports_scope
+        ON connection_amazon_report_jobs(connection_id,updated_at);
+      CREATE TABLE IF NOT EXISTS profit_test_plans (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES profit_items(id) ON DELETE CASCADE,
+        status TEXT NOT NULL, updated_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS profit_test_plans_scope
+        ON profit_test_plans(dataset,client_id,status,updated_at);
+      PRAGMA user_version = 9;
     `);
   }
   transaction<T>(fn: () => T): T {

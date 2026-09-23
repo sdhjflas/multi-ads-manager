@@ -116,7 +116,7 @@ export class PbsObserver implements ProviderObserver {
     return parsed.data;
   }
 
-  async collect(_connection: SourceConnection, _since: string | null): Promise<ProviderSyncResult> {
+  async collect(_connection: SourceConnection, since: string | null): Promise<ProviderSyncResult> {
     const code = encodeURIComponent(this.code);
     const [catalog, statementList] = await Promise.all([
       this.get(`api/publishers/${code}/titles?preset=last_90_days&sort=title`, titlesResponse),
@@ -124,9 +124,11 @@ export class PbsObserver implements ProviderObserver {
     ]);
     if (catalog.pub_code.toUpperCase() !== this.code || statementList.pub_code.toUpperCase() !== this.code)
       throw new ConnectorError('invalid', 'PBS HQ returned a different publisher scope.');
-    const recent = [...statementList.statements]
-      .sort((a, b) => b.period.localeCompare(a.period))
-      .slice(0, 3);
+    const sorted = [...statementList.statements].sort((a, b) => b.period.localeCompare(a.period));
+    const fromMonth = since && /^\d{4}-\d{2}/.test(since) ? since.slice(0, 7) : null;
+    const recent = fromMonth ? sorted.filter((row) => row.period >= fromMonth) : sorted.slice(0, 3);
+    if (recent.length > 120)
+      throw new ConnectorError('invalid', 'PBS backfill exceeds the 120-statement safety limit.');
     const bundles = await Promise.all(
       recent.map((row) =>
         this.get(`api/publishers/${code}/statements/${encodeURIComponent(row.period)}`, statementBundle),
@@ -163,7 +165,7 @@ export class PbsObserver implements ProviderObserver {
       watermark: recent[0]?.period || catalog.period.to,
       sourceAsOf,
       warnings:
-        statementList.statements.length > bundles.length
+        !fromMonth && statementList.statements.length > bundles.length
           ? ['The three newest settlement bundles were refreshed; older statements remain available in PBS HQ.']
           : [],
     };

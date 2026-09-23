@@ -37,6 +37,7 @@ import {
   TrendingUp,
   Unplug,
   Wallet,
+  Gauge,
   X,
   Zap,
 } from 'lucide-react';
@@ -70,6 +71,7 @@ import { BrainPage } from './Brain';
 import { BooksPage } from './Books';
 import { CommercePage } from './Commerce';
 import { ConnectionsPage } from './Connections';
+import { ProfitControlPage } from './ProfitControl';
 
 type Page =
   | 'overview'
@@ -85,6 +87,7 @@ type Page =
   | 'portfolio'
   | 'reporting'
   | 'connections'
+  | 'profit-control'
   | 'activity'
   | 'blueprint';
 type ModalState =
@@ -118,6 +121,7 @@ const nav: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'brain', label: 'The brain', icon: <BrainCircuit size={18} /> },
   { id: 'reporting', label: 'Reporting hub', icon: <Database size={18} /> },
   { id: 'connections', label: 'Connections', icon: <Unplug size={18} /> },
+  { id: 'profit-control', label: 'Profit control', icon: <Gauge size={18} /> },
   { id: 'activity', label: 'Activity log', icon: <History size={18} /> },
   { id: 'blueprint', label: 'The blueprint', icon: <Network size={18} /> },
 ];
@@ -183,6 +187,11 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
     eyebrow: 'YOUR CONNECTED WORKSPACE',
     title: 'Bring the right signals together.',
     subtitle: 'Authorize read-only ad, commerce, and publisher sources and monitor their evidence.',
+  },
+  'profit-control': {
+    eyebrow: 'CLIENT PROFIT CONTROL',
+    title: 'Give every dollar a reason.',
+    subtitle: 'Reconcile source identities, verify economics, and compare bounded allocations in shadow mode.',
   },
   reporting: {
     eyebrow: 'THE EVIDENCE INBOX',
@@ -326,20 +335,17 @@ export function App() {
         />
       )}
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-        <a
+        <button
+          type="button"
           className="brand"
-          href="#overview"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate('overview');
-          }}
+          onClick={() => navigate('overview')}
         >
           <OrbitLogo />
           <span>
             orbit<span className="brand-period">.</span>
           </span>
           <span className="brand-label">ADS INTELLIGENCE</span>
-        </a>
+        </button>
         <div className="workspace-picker">
           <span className="workspace-avatar">P</span>
           <div>
@@ -1101,6 +1107,13 @@ export function App() {
                   onNotice={(message, error = false) => setToast({ message, error })}
                 />
               )}
+              {page === 'profit-control' && (
+                <ProfitControlPage
+                  dataset={dataset}
+                  onWorkspace={() => setDataset('workspace')}
+                  onNotice={(message, error = false) => setToast({ message, error })}
+                />
+              )}
               {page === 'activity' && (
                 <section className="panel activity-panel">
                   <div className="panel-heading">
@@ -1153,7 +1166,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.8<span className="footer-dot">·</span>Connected observation mode
+              Orbit v0.9<span className="footer-dot">·</span>Client profit control
               <ShieldCheck size={12} />
             </span>
           </footer>

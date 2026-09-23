@@ -50,8 +50,9 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 | Optional AI                     | Claude (default) or OpenAI structured outputs: search-term relevance review, proposal explanations, up to 24 ideas/request, cached by content, daily request reservations, no tools or platform actions                                                                                                                                                |
 | Audit journal                   | Imports, setup revisions, experiment changes, and decisions                                                                                                                                                                                                                                                                                            |
 | Connection control center       | Provider capabilities, verified account state, source counts, stale/partial/error health, manual sync, credential revocation, and durable job history                                                                                                                                                                                                  |
+| Client profit control           | Client-isolated SKU/book economics, exact source mappings, independent receipt reconciliation, pilot readiness, 300-candidate bounded test queues, shadow budget pools, and immutable optimizer runs                                                                                                                                                    |
 
-**Not implemented:** live credential/account validation in this repository's test environment, TikTok, Shopify refunded-shipping and Payments dispute/chargeback collection, Meta event-quality verification, creative media production, category/brand/automatic-target and placement actions, causal experiment execution, full historical publisher-settlement backfill, hosted authentication/PostgreSQL tenant enforcement, and public deployment. Execution against a live Amazon account still requires the separate environment write switch, a supervised or bounded policy, complete reconciled reports, and verified book economics; credentials saved through Connections are read-only. See [Connected observation](docs/CONNECTIONS.md), [The brain](docs/BRAIN.md), and [Amazon API contract](docs/AMAZON_API.md).
+**Not implemented:** live credential/account validation in this repository's test environment, TikTok, Shopify refunded-shipping and Payments dispute/chargeback collection, Meta event-quality verification, creative media production, category/brand/automatic-target and placement actions, causal experiment execution, hosted authentication/PostgreSQL tenant enforcement, and public deployment. Execution against a live Amazon account still requires the separate environment write switch, a supervised or bounded policy, complete reconciled reports, and verified book economics; credentials saved through Connections are read-only. See [Profit control](docs/PROFIT_CONTROL.md), [Connected observation](docs/CONNECTIONS.md), [The brain](docs/BRAIN.md), and [Amazon API contract](docs/AMAZON_API.md).
 
 ## First real workflow
 
@@ -59,8 +60,8 @@ The demo is evaluated at its labeled sample snapshot date so it remains useful w
 2. For products, open **Product portfolio**, register a store, and add or bulk-import exact SKUs with their costs, approvals, inventory route, loss allowance, and budget ceiling. Import paid-order lines without customer data, then reconcile each product campaign to one SKU. See [the commerce contract](docs/COMMERCE.md).
 3. For books, open **Book portfolio** and add or bulk-import one row per ASIN/format with its own net receipts, costs, profit reserve, 56-day loss allowance, and daily budget ceiling. Unverified items can be saved in either portfolio but cannot receive scaling recommendations.
 4. Open **Connections** to authorize read-only Shopify, Meta Ads, Amazon Ads, or PBS HQ collection. Use **Reporting hub** for reviewed CSV workflows, and link a verified Amazon Ads profile in **The brain** for durable Reporting v3 jobs. A local campaign has one reporting identity; file and API sources cannot be mixed. See [the connection contract](docs/CONNECTIONS.md), [the reporting workflow](docs/REPORTING.md), and [the Amazon API contract](docs/AMAZON_API.md).
-5. Inspect a campaign's unit economics and mature evidence. Recommendations are observational screening signals, not verified business profit.
-6. Build an experiment, shortlist a small wave, and export the candidate library for review.
+5. Open **Profit control**, select the client, register exact SKU/book economics, and map each ad campaign and independent receipt source. The pilot gate shows every missing prerequisite.
+6. Build a bounded candidate queue, approve only its first wave, then run the budget allocator in shadow. Recommendations are observational screening signals, not verified business profit.
 7. Record the recommendation decision. Manage actual advertising in the platform console until a separately tested execution integration exists.
 
 To look inside a campaign, open **Target explorer** and import the normalized target/creative template. Target facts remain separate from campaign totals. Inspect a measured cell, then use it as a seed for an experiment; the saved draft retains its source target.
@@ -104,6 +105,7 @@ server/waves.ts       Frozen plans, conditional comparisons, and learning revisi
 server/ai/            Provider boundary (Claude, OpenAI) and structured tasks; no action tools
 server/connectors/    Connector contract, simulated account, Amazon Ads v3 adapter
 server/connections/   Encrypted source lifecycle, OAuth, provider observers, jobs, reconciliation
+server/profit-control.ts Client-scoped reconciliation, tests, readiness, and shadow allocation
 server/brain/         Accounts and policy, sync, proposals, execution outbox, view, routes
 server/books.ts       Book catalog, advertised-product facts, title economics, loss gates
 server/commerce.ts    Product catalog, readiness, inventory, ledger, and decision gates
@@ -119,6 +121,7 @@ docs/BRAIN.md          Sync, proposals, operating modes, execution, and AI revie
 docs/AMAZON_API.md     Implemented Ads API/reporting contract and pilot checks
 docs/COMMERCE.md       Product economics, readiness, ledger, and Shopify boundary
 docs/CONNECTIONS.md    Shopify, Meta, Amazon, PBS, credential, job, and pilot contracts
+docs/PROFIT_CONTROL.md Client profit model, experiment queue, allocator, and pilot gate
 ```
 
 The repository is public. Use synthetic fixtures only; do not commit client reports, financial exports, credentials, or copies of private source project data.

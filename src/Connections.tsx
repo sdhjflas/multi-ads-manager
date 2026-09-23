@@ -12,6 +12,7 @@ import {
   LockKeyhole,
   Plus,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
   Unplug,
   UsersRound,
@@ -159,6 +160,40 @@ export function ConnectionsPage({
       onNotice(`${connection.name} credentials were removed from Orbit.`);
     } catch (error) {
       onNotice((error as Error).message, true);
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function backfill(connection: SourceConnection) {
+    setBusyId(connection.id);
+    try {
+      const from = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+      await api(`/connections/${connection.id}/backfill`, {
+        dataset,
+        clientId: connection.clientId,
+        from,
+      });
+      await load(undefined, connection.clientId);
+      onNotice(`${connection.name} queued a 60-day overlap backfill.`);
+    } catch (caught) {
+      onNotice((caught as Error).message, true);
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function retryJob(jobId: string) {
+    setBusyId(jobId);
+    try {
+      await api(`/connection-jobs/${jobId}/retry`, {
+        dataset,
+        clientId: view?.activeClientId,
+      });
+      await load(undefined, view?.activeClientId);
+      onNotice('Connection job queued for a bounded retry.');
+    } catch (caught) {
+      onNotice((caught as Error).message, true);
     } finally {
       setBusyId('');
     }
@@ -354,6 +389,15 @@ export function ConnectionsPage({
                       {busyId === connection.id ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
                       Sync now
                     </button>
+                    {['shopify', 'meta-ads', 'pbs'].includes(connection.provider) && (
+                      <button
+                        className="text-button"
+                        disabled={busyId === connection.id || !connection.secretConfigured || dataset === 'demo'}
+                        onClick={() => void backfill(connection)}
+                      >
+                        Queue 60-day backfill
+                      </button>
+                    )}
                     {connection.secretConfigured && connection.authMode !== 'environment' && (
                       <button
                         className="text-button danger-text"
@@ -402,8 +446,23 @@ export function ConnectionsPage({
                   <Activity size={13} /> {job.status}
                 </span>
                 <strong>{providers[job.provider].name}</strong>
-                <p>{job.message}</p>
+                <p>
+                  {job.message}
+                  {job.nextAttemptAt && job.status === 'queued'
+                    ? ` Next attempt ${new Date(job.nextAttemptAt).toLocaleString()}.`
+                    : ''}
+                </p>
                 <time>{timeAgo(job.finishedAt || job.startedAt)}</time>
+                {['failed', 'dead-letter'].includes(job.status) && dataset === 'workspace' && (
+                  <button
+                    className="text-button job-retry"
+                    disabled={busyId === job.id}
+                    onClick={() => void retryJob(job.id)}
+                  >
+                    {busyId === job.id ? <Loader2 className="spin" size={12} /> : <RotateCcw size={12} />}
+                    Retry
+                  </button>
+                )}
               </div>
             ))}
           </div>

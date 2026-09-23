@@ -257,7 +257,7 @@ export class ConnectionService {
     if (connection.provider === 'amazon-ads' && connection.authMode === 'environment') {
       const config = amazonConfigFromEnv(connection.externalAccountId || '');
       if (!config) throw new AppError('Amazon Ads environment credentials are unavailable.', 503);
-      return new AmazonAdsObserver(config, this.fetcher);
+      return new AmazonAdsObserver(config, this.store, this.fetcher, this.clock);
     }
     if (connection.provider === 'shopify')
       return new ShopifyObserver(this.repository.secret<ShopifyCredential>(connection), this.fetcher);
@@ -266,12 +266,19 @@ export class ConnectionService {
     if (connection.provider === 'amazon-ads')
       return new AmazonAdsObserver(
         this.repository.secret<AmazonAdsCredential>(connection),
+        this.store,
         this.fetcher,
+        this.clock,
       );
     return new PbsObserver(this.repository.secret<PbsCredential>(connection), this.fetcher);
   }
 
-  async sync(dataset: Dataset, clientId: string, connectionId: string) {
+  async sync(
+    dataset: Dataset,
+    clientId: string,
+    connectionId: string,
+    options: { kind?: ConnectionJob['kind']; cursor?: string | null } = {},
+  ) {
     let connection = this.repository.connection(dataset, clientId, connectionId);
     if (dataset !== 'workspace') throw new AppError('Live source sync is disabled in the demo.');
     if (connection.health.status === 'syncing')
@@ -283,15 +290,17 @@ export class ConnectionService {
       clientId,
       connectionId,
       provider: connection.provider,
-      kind: 'full-sync',
+      kind: options.kind || 'full-sync',
       status: 'running',
       attempt: 1,
       startedAt: started.toISOString(),
       finishedAt: null,
-      cursor: connection.health.watermark,
+      cursor: options.cursor === undefined ? connection.health.watermark : options.cursor,
       counts: {},
       message: 'Collecting read-only source facts.',
       errorKind: null,
+      nextAttemptAt: null,
+      maxAttempts: 1,
     };
     connection = {
       ...connection,
@@ -310,7 +319,7 @@ export class ConnectionService {
     try {
       const result = await this.observer(connection).collect(
         connection,
-        connection.health.watermark,
+        options.cursor === undefined ? connection.health.watermark : options.cursor,
       );
       const identityOwner = this.repository
         .connections(dataset, clientId)
@@ -341,9 +350,12 @@ export class ConnectionService {
         ...result.counts,
         unmapped: Math.max(result.counts.unmapped || 0, projected.unmapped),
       };
-      const partial = counts.unmapped > 0;
+      const partial = counts.unmapped > 0 || Boolean(result.pending);
       const status: ConnectionStatus = partial ? 'partial' : 'healthy';
-      const next = new Date(finished.getTime() + 24 * 3_600_000).toISOString();
+      const next = new Date(
+        finished.getTime() +
+          (result.pending ? Math.max(60_000, result.retryAfterMs || 60_000) : 24 * 3_600_000),
+      ).toISOString();
       const sourceCapabilities = capabilities(connection.provider, true).map((capability) =>
         capability.key === 'reconcile' && partial
           ? {
@@ -374,6 +386,13 @@ export class ConnectionService {
         secretConfigured:
           connection.authMode === 'environment' || this.repository.secretExists(connection.id),
         capabilities: sourceCapabilities.map((capability) =>
+          capability.key === 'reports' && result.pending
+            ? {
+                ...capability,
+                state: 'pending' as const,
+                detail: 'Amazon report jobs are still generating and will be polled automatically.',
+              }
+            :
           capability.key === 'reports' && !brainProfileLinked
             ? {
                 ...capability,
@@ -385,7 +404,9 @@ export class ConnectionService {
         health: {
           status,
           message: partial
-            ? `Source collection completed; ${counts.unmapped} identities still need mapping.`
+            ? result.pending
+              ? 'Entity collection completed; provider reports are still generating.'
+              : `Source collection completed; ${counts.unmapped} identities still need mapping.`
             : result.warnings[0] || 'Source collection and reconciliation completed.',
           lastAttemptAt: started.toISOString(),
           lastSuccessAt: finished.toISOString(),
@@ -727,26 +748,128 @@ export class ConnectionService {
   }
 
   async processQueuedJobs(limit = 10) {
-    const jobs = this.repository.queuedJobs(limit);
+    const jobs = this.repository.queuedJobs(limit, this.clock());
     for (const trigger of jobs) {
       trigger.status = 'running';
       trigger.attempt += 1;
       trigger.message = 'Processing the durable refresh trigger.';
+      trigger.nextAttemptAt = null;
       this.repository.saveJob(trigger);
       try {
-        await this.sync(trigger.dataset, trigger.clientId, trigger.connectionId);
+        await this.sync(trigger.dataset, trigger.clientId, trigger.connectionId, {
+          kind: trigger.kind === 'backfill' ? 'backfill' : 'retry',
+          cursor: trigger.cursor,
+        });
         trigger.status = 'succeeded';
         trigger.finishedAt = this.clock().toISOString();
         trigger.message = 'Verified trigger completed through a read-only source refresh.';
       } catch (error) {
-        trigger.status = 'failed';
-        trigger.finishedAt = this.clock().toISOString();
-        trigger.errorKind = retryKind(error);
+        const kind = retryKind(error);
+        const retryable = ['throttled', 'timeout', 'unavailable'].includes(kind || '');
+        const maxAttempts = trigger.maxAttempts || 5;
+        trigger.errorKind = kind;
         trigger.message = error instanceof Error ? error.message : 'Queued refresh failed.';
+        if (retryable && trigger.attempt < maxAttempts) {
+          const delayMinutes = Math.min(360, 2 ** Math.max(0, trigger.attempt - 1) * 5);
+          trigger.status = 'queued';
+          trigger.finishedAt = null;
+          trigger.nextAttemptAt = new Date(
+            this.clock().getTime() + delayMinutes * 60_000,
+          ).toISOString();
+          trigger.message = `${trigger.message} Retry ${trigger.attempt + 1}/${maxAttempts} is scheduled.`;
+        } else {
+          trigger.status = retryable ? 'dead-letter' : 'failed';
+          trigger.finishedAt = this.clock().toISOString();
+          trigger.nextAttemptAt = null;
+        }
       }
       this.repository.saveJob(trigger);
     }
     return jobs.length;
+  }
+
+  queueBackfill(dataset: Dataset, clientId: string, connectionId: string, from: string) {
+    const connection = this.repository.connection(dataset, clientId, connectionId);
+    if (dataset !== 'workspace') throw new AppError('Backfills are disabled in the demo.');
+    if (!connection.secretConfigured) throw new AppError('Authorize this connection before backfilling.');
+    if (!['shopify', 'meta-ads', 'pbs'].includes(connection.provider))
+      throw new AppError('This provider uses its own complete snapshot or report backfill workflow.');
+    const parsed = new Date(`${from}T00:00:00.000Z`);
+    const now = this.clock();
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
+      !Number.isFinite(parsed.getTime()) ||
+      parsed.getTime() > now.getTime() ||
+      parsed.getTime() < now.getTime() - 2 * 366 * 86_400_000
+    )
+      throw new AppError('Backfill start must be a real date within the previous two years.');
+    const job: ConnectionJob = {
+      id: randomUUID(),
+      dataset,
+      clientId,
+      connectionId,
+      provider: connection.provider,
+      kind: 'backfill',
+      status: 'queued',
+      attempt: 0,
+      startedAt: now.toISOString(),
+      finishedAt: null,
+      cursor: parsed.toISOString(),
+      counts: {},
+      message: `Backfill queued from ${from}; source permissions still govern available history.`,
+      errorKind: null,
+      nextAttemptAt: now.toISOString(),
+      maxAttempts: 5,
+    };
+    this.store.transaction(() => {
+      this.repository.saveJob(job);
+      this.repository.event(
+        connection,
+        dataset,
+        clientId,
+        'connection.backfill.queued',
+        `${connection.name}: backfill queued from ${from}.`,
+        now,
+      );
+    });
+    return job;
+  }
+
+  retryJob(dataset: Dataset, clientId: string, jobId: string) {
+    const old = this.repository
+      .jobs(dataset, clientId, 500)
+      .find((job) => job.id === jobId);
+    if (!old) throw new AppError('Connection job not found in this client workspace.', 404);
+    if (!['failed', 'dead-letter'].includes(old.status))
+      throw new AppError('Only failed or dead-letter jobs can be retried.');
+    const connection = this.repository.connection(dataset, clientId, old.connectionId);
+    const now = this.clock();
+    const job: ConnectionJob = {
+      ...old,
+      id: randomUUID(),
+      kind: old.kind === 'backfill' ? 'backfill' : 'retry',
+      status: 'queued',
+      attempt: 0,
+      startedAt: now.toISOString(),
+      finishedAt: null,
+      counts: {},
+      message: `Operator retry queued for ${connection.name}.`,
+      errorKind: null,
+      nextAttemptAt: now.toISOString(),
+      maxAttempts: 5,
+    };
+    this.store.transaction(() => {
+      this.repository.saveJob(job);
+      this.repository.event(
+        connection,
+        dataset,
+        clientId,
+        'connection.job.retried',
+        `${connection.name}: operator retried job ${old.id}.`,
+        now,
+      );
+    });
+    return job;
   }
 
   async syncDueConnections(limit = 5) {

@@ -17,6 +17,8 @@ export interface ProviderSyncResult {
   watermark: string | null;
   sourceAsOf: string | null;
   warnings: string[];
+  pending?: boolean;
+  retryAfterMs?: number;
 }
 
 export interface ProviderObserver {

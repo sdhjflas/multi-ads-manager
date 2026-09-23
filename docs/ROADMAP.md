@@ -105,7 +105,19 @@ See [Product commerce](COMMERCE.md).
 
 See [Connected observation](CONNECTIONS.md).
 
-Remaining from Milestones 1–3: live-account authorization evidence, Shopify dispute/chargeback collection, Meta event-quality and creative-asset provenance, TikTok, complete historical PBS settlement backfill, hosted identity/PostgreSQL tenancy, placement and complex product-expression actions, and a supervised pilot.
+## Milestone 0.9 — implemented client profit control and reliable operations
+
+- Client-scoped profit items for exact SKUs and book formats, with immutable economics revisions and cross-client isolation.
+- Exact campaign and independent-receipt mappings over collected Meta, Amazon, Shopify, and PBS facts.
+- Conservative blocked/observe/test/scale/stop screening, source-freshness gates, loss accounting, and a visible supervised-pilot checklist.
+- Candidate libraries of up to 300 variants with provenance, vertical-specific variables, explicit loss boundaries, and a bounded first-wave approval that performs no platform write.
+- Client budget pools and immutable shadow allocations that honor item ceilings and reserves and may leave cash unused.
+- Amazon Ads connection-level restart-safe campaign and advertised-product reports for secondary as well as bootstrap clients.
+- Scheduled exponential retry, dead-letter visibility, operator retry, and dated Shopify, Meta, and PBS backfills.
+
+See [Client profit control](PROFIT_CONTROL.md).
+
+Remaining from Milestones 1–3: live-account authorization evidence, Shopify dispute/chargeback collection, Meta event-quality and creative-asset provenance, TikTok, hosted identity/PostgreSQL tenancy, placement and complex product-expression actions, measured wave advancement, and a supervised pilot with real accounts.
 
 ## Milestone 1 — connected observation, two equal tracks
 

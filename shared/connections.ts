@@ -15,7 +15,13 @@ export type ConnectionStatus =
   | 'reauthorize';
 
 export type ConnectionAuthMode = 'oauth' | 'token' | 'environment';
-export type ConnectionJobStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed';
+export type ConnectionJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'partial'
+  | 'failed'
+  | 'dead-letter';
 
 export interface ClientWorkspace {
   id: string;
@@ -90,7 +96,7 @@ export interface ConnectionJob {
   clientId: string;
   connectionId: string;
   provider: SourceProvider;
-  kind: 'full-sync' | 'oauth-callback' | 'webhook' | 'reconcile';
+  kind: 'full-sync' | 'oauth-callback' | 'webhook' | 'reconcile' | 'backfill' | 'retry';
   status: ConnectionJobStatus;
   attempt: number;
   startedAt: string;
@@ -99,6 +105,8 @@ export interface ConnectionJob {
   counts: Partial<ConnectionCounts>;
   message: string;
   errorKind: 'auth' | 'throttled' | 'timeout' | 'invalid' | 'unavailable' | null;
+  nextAttemptAt?: string | null;
+  maxAttempts?: number;
 }
 
 export interface ConnectionAuditEvent {

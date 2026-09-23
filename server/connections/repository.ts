@@ -308,12 +308,15 @@ export class ConnectionRepository {
     ).map((row) => JSON.parse(row.body));
   }
 
-  queuedJobs(limit = 20): ConnectionJob[] {
+  queuedJobs(limit = 20, now = new Date()): ConnectionJob[] {
     return (
       this.store.db
         .prepare("SELECT body FROM connection_jobs WHERE status='queued' ORDER BY started_at LIMIT ?")
         .all(limit) as { body: string }[]
-    ).map((row) => JSON.parse(row.body));
+    )
+      .map((row) => JSON.parse(row.body) as ConnectionJob)
+      .filter((job) => !job.nextAttemptAt || Date.parse(job.nextAttemptAt) <= now.getTime())
+      .slice(0, limit);
   }
 
   replaceObjects(

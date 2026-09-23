@@ -154,6 +154,19 @@ test('mobile layout contains overflow and offers a usable connection control cen
   await expect(page.getByRole('dialog')).not.toBeVisible();
 });
 
+test('profit control exposes the pilot gate and remains usable on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#profit-control');
+  await expect(page.getByRole('heading', { name: 'Give every dollar a reason.' })).toBeVisible();
+  await expect(page.getByText('Profit decisions fail closed.')).toBeVisible();
+  await expect(page.getByText('Pilot evidence is incomplete')).toBeVisible();
+  await page.getByRole('tab', { name: /Test queue/ }).click();
+  await expect(page.getByRole('heading', { name: 'Candidate test queue' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  const violations = await new AxeBuilder({ page }).analyze();
+  expect(violations.violations).toEqual([]);
+});
+
 test('connects measured targets to the next experiment and passes overview accessibility checks', async ({
   page,
 }) => {

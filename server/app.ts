@@ -31,6 +31,8 @@ import { reportRoutes } from './report-routes.js';
 import { connectionRoutes, shopifyWebhookRoute } from './connection-routes.js';
 import { ConnectionRepository } from './connections/repository.js';
 import { ConnectionService } from './connections/service.js';
+import { ProfitControlService } from './profit-control.js';
+import { profitRoutes } from './profit-routes.js';
 import { vaultFromEnv, type CredentialVault } from './security/vault.js';
 import {
   AppError,
@@ -72,8 +74,14 @@ export function createApp(store: Store, options: AppOptions = {}) {
     options.fetcher || fetch,
     options.clock || (() => new Date()),
   );
+  const profitControlService = new ProfitControlService(
+    store,
+    repository,
+    options.clock || (() => new Date()),
+  );
   connectionService.recoverInterruptedJobs();
   app.locals.connectionService = connectionService;
+  app.locals.profitControlService = profitControlService;
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -535,6 +543,7 @@ export function createApp(store: Store, options: AppOptions = {}) {
   bookRoutes(app, store);
   commerceRoutes(app, store);
   connectionRoutes(app, connectionService);
+  profitRoutes(app, profitControlService);
 
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);
