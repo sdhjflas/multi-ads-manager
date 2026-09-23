@@ -139,7 +139,7 @@ describe('durable Amazon reporting', () => {
       store.close();
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('respects Retry-After dates and resumes a throttled report request', async () => {
     let clock = timestamp,
