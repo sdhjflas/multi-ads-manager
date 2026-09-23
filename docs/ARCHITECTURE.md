@@ -4,7 +4,7 @@
 
 Build a shared operating system for product advertising and Amazon book advertising that maximizes **risk-adjusted incremental contribution within authorized client limits**. The platform should be able to discover that a campaign, product, or book cannot profitably acquire customers under current conditions and stop the search when its learning allowance is exhausted.
 
-The September 2026 implementation is a local, single-operator foundation. The production architecture below is a delivery design, not a description of already deployed services. See [the roadmap](ROADMAP.md) for the boundary between implemented and planned work.
+The September 2026 implementation is a local, single-operator foundation with a client-scoped, encrypted read-only connection control plane. Hosted identity, PostgreSQL row-level security, and public deployment remain delivery design rather than deployed services. See [the roadmap](ROADMAP.md) and [connection contract](CONNECTIONS.md) for the boundary between implemented and planned work.
 
 ## 1. Separate the three jobs
 
@@ -68,7 +68,7 @@ For books, keep MANUFACTURING, CONSIGNMENT, Ads attribution, KDP royalties, and 
 
 For products, ingest and reconcile paid orders, discounts, refunds, chargebacks, fulfillment costs, stock, and consent-compatible attribution. Use webhook verification, a durable inbox, idempotency, and periodic source reconciliation.
 
-The v0.7 local product portfolio implements the manual boundary before a live connector: exact store/SKU identity, a complete cost stack, product and inventory gates, aggregate paid-order lines, correction revisions, and a daily cap that prevents platform-attributed orders from exceeding independent paid units. Ledger freshness is SKU-specific. Its positive contribution status is an observational business screen because all product receipts, including organic demand, are compared with linked ad spend. See [Product commerce](COMMERCE.md).
+The v0.8 product portfolio preserves that boundary while the Shopify observer refreshes exact variants, inventory, and aggregate paid/refunded order lines. Operator-entered costs and release approvals remain authoritative; unknown SKUs fail reconciliation. Ledger freshness is SKU-specific. Its positive contribution status is an observational business screen because all product receipts, including organic demand, are compared with linked ad spend. See [Product commerce](COMMERCE.md) and [Connected observation](CONNECTIONS.md).
 
 All financial amounts have a currency and integer minor-unit or appropriate fixed-decimal representation. Cross-currency portfolios need documented FX rates, effective dates, and conversion rules. Version unit economics by item, format, contract, and effective date.
 
@@ -239,7 +239,7 @@ Every connector needs: supported versions/regions, account discovery, authorizat
 
 Before mutation support, validate the requested operation against actual account capability. Use contract fixtures redacted from authorized accounts, not invented response schemas. Keep source-specific attributes alongside normalized fields rather than throwing away distinctions needed for future decisions.
 
-Amazon Ads application approval, client OAuth/profile scoping, and reporting are the first Amazon integration milestones. PBS SP-API credentials remain separate. The first product milestones are authorized Meta Insights and Shopify reconciliation. Build both tracks concurrently in delivery priority, without requiring separate agents.
+v0.8 implements the local read-only connector contracts, OAuth/profile scoping, encrypted credentials, and equal-track reconciliation handoffs. Amazon Ads application approval and real advertiser consent still need external confirmation. PBS SP-API credentials remain separate. The next connector evidence is one authorized Meta/Shopify product pilot and one Amazon Ads/PBS book pilot, followed by the hosted identity and storage migration described above.
 
 ## 9. AI operations and evaluation
 

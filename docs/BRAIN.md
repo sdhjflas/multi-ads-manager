@@ -59,9 +59,9 @@ The account card shows active platform daily budgets beside the portfolio ceilin
 
 ## Connecting a real account
 
-1. Confirm the credentials are approved **Amazon Ads API** access, not only SP-API or Advantage access. Complete the Login with Amazon advertiser authorization and keep the refresh token in the server secret environment.
-2. Set `AMAZON_ADS_CLIENT_ID`, `AMAZON_ADS_CLIENT_SECRET`, `AMAZON_ADS_REFRESH_TOKEN`, and `AMAZON_ADS_REGION` in the server `.env`. Leave `AMAZON_ADS_WRITES_ENABLED=false`.
-3. Select **Your workspace**, open **The brain**, choose **Connect account → Amazon Ads profile**, then discover and select the profile. Orbit obtains marketplace, currency, account type, and timezone from Amazon. The account starts in `observe` mode with AI review off.
+1. Confirm the credentials are approved **Amazon Ads API** access, not only SP-API or Advantage access.
+2. In the bootstrap **Pathway workspace**, use **Connections** for approved Login with Amazon consent or an encrypted server credential, or set `AMAZON_ADS_CLIENT_ID`, `AMAZON_ADS_CLIENT_SECRET`, `AMAZON_ADS_REFRESH_TOKEN`, and `AMAZON_ADS_REGION` in `.env`. Leave `AMAZON_ADS_WRITES_ENABLED=false`. Connection-vault credentials are always read-only; only the legacy environment path can satisfy the separate write switch.
+3. Open **The brain**, choose **Connect account → Amazon Ads profile**, then discover and select the profile. Orbit obtains marketplace, currency, account type, and timezone from Amazon. The account starts in `observe` mode with AI review off. Secondary-client Connections remain isolated from this dataset-scoped Brain until its schema carries `client_id`.
 4. Press **Sync now**, then **Link campaign** for each local campaign (its click window must match the account's attribution window). Sync again to collect performance.
 5. Review proposals in `recommend` mode for at least one full attribution window. Compare them with your console decisions.
 6. Enable writes on the server, switch to `supervised`, and execute individual changes while watching read-back. Only then consider a narrow `bounded` policy (negatives and bid reductions first).
@@ -74,7 +74,7 @@ The request and response contracts follow Amazon's documented v3 report types an
 
 ## Storage
 
-SQLite schema version 6 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, and advertised-product rows. Keyword and product-target performance reuse the target tables, so the Target explorer and test waves see both as measured cells.
+SQLite schema version 8 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, advertised-product rows, and the encrypted connection/job tables. Keyword and product-target performance reuse the target tables, so the Target explorer and test waves see both as measured cells.
 
 ## Boundaries
 

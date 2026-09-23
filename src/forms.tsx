@@ -991,7 +991,7 @@ export const connections = [
     className: 'amazon',
     category: 'BOOK ADVERTISING',
     description: 'Keywords, product targets, bids, and Sponsored Products reporting.',
-    status: 'API access required',
+    status: 'Read-only adapter ready',
     steps: [
       'Apply for Amazon Ads API access as a third-party application managing client campaigns.',
       'Register the application and authorized redirect URLs. Obtain each client’s separate authorization.',
@@ -1000,7 +1000,7 @@ export const connections = [
     ],
     link: 'https://advertising.amazon.com/about-api',
     linkText: 'Amazon Ads API application',
-    note: 'The brain synchronizes campaigns, keywords, negatives, and daily campaign, keyword, and search-term reports through the Sponsored Products v3 APIs, and can apply reviewed keyword, bid, and budget changes when AMAZON_ADS_WRITES_ENABLED=true. Set the client, secret, and refresh token on the server, then connect a profile on The brain page. A simulated account is available without credentials.',
+    note: 'Connections now supports encrypted Login with Amazon or existing server credentials, profile discovery, and a read-only entity check. The brain owns the separate durable Reporting v3 and policy workflow. Credentials saved through Connections cannot write to Amazon.',
   },
   {
     id: 'meta',
@@ -1009,7 +1009,7 @@ export const connections = [
     className: 'meta',
     category: 'PRODUCT ADVERTISING',
     description: 'Creative performance, ad sets, delivery, and conversion insights.',
-    status: 'Not connected',
+    status: 'Read-only adapter ready',
     steps: [
       'Create a Meta business application and verify access to the intended ad account.',
       'Request the appropriate Marketing API permissions and complete the required review.',
@@ -1018,7 +1018,7 @@ export const connections = [
     ],
     link: 'https://developers.facebook.com/docs/marketing-api/',
     linkText: 'Meta Marketing API documentation',
-    note: 'Normalized aggregate report imports work now. Automated Insights synchronization and campaign writes are planned.',
+    note: 'The connection control center now discovers authorized accounts and collects campaign, ad-set, ad, creative, and daily ad-level Insights facts. Exact campaign mapping and independent Shopify receipts remain required before profit decisions.',
   },
   {
     id: 'shopify',
@@ -1027,7 +1027,7 @@ export const connections = [
     className: 'shopify',
     category: 'COMMERCE & ECONOMICS',
     description: 'Paid orders, refunds, product costs, and fulfillment readiness.',
-    status: 'Not connected',
+    status: 'Read-only adapter ready',
     steps: [
       'Install a scoped custom app for the authorized store.',
       'Subscribe to paid-order, transaction, refund, and inventory events.',
@@ -1036,7 +1036,7 @@ export const connections = [
     ],
     link: 'https://shopify.dev/docs/apps/build/orders-fulfillment/order-management-apps/enterprise-oms-integration',
     linkText: 'Shopify integration documentation',
-    note: 'Enthusiast’s production commerce path is Shopify. Its release and evidence gates need to be preserved in the adapter.',
+    note: 'The read-only adapter preserves Enthusiast’s release and evidence gates while refreshing exact variants, aggregate inventory, and no-customer-data paid/refunded order lines. Manual costs and approvals remain authoritative.',
   },
   {
     id: 'pbs',
@@ -1045,7 +1045,7 @@ export const connections = [
     className: 'pbs',
     category: 'PUBLISHER OPERATIONS',
     description: 'Book identity, stock, settled sales, and publisher economics.',
-    status: 'Adapter planned',
+    status: 'Read-only adapter ready',
     steps: [
       'Map publisher, book, ISBN/EAN, ASIN, format, and marketplace explicitly.',
       'Consume authorized PBS reporting through a scoped read-only adapter.',
@@ -1054,7 +1054,7 @@ export const connections = [
     ],
     link: 'https://github.com/sdhjflas/multi-ads-manager/blob/main/docs/RESEARCH.md',
     linkText: 'Read the integration findings',
-    note: 'PBS HQ’s existing SP-API authorization does not grant Amazon Ads API access. No private PBS data is included in this build.',
+    note: 'The publisher-scoped adapter collects the PBS title, availability, return, and newest statement contracts. It does not copy PBS credentials or infer ASINs and unit economics. PBS SP-API authorization remains separate from Amazon Ads.',
   },
   {
     id: 'anthropic',

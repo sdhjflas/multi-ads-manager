@@ -10,6 +10,7 @@ import {
   versionPolicy,
   accountNow,
 } from './accounts.js';
+import { amazonConfigFor, discoverAmazonProfiles } from '../connections/amazon-config.js';
 import { syncAccount } from './sync.js';
 import {
   authorizeProposal,
@@ -23,7 +24,7 @@ import { brainScope, brainView, ledgerHeaders, ledgerInput, parseLedger } from '
 import { analyzeAccount } from './policy.js';
 import { aiProvider, aiStatus } from '../ai/provider.js';
 import { explainProposals, reviewSearchTerms } from '../ai/tasks.js';
-import { AmazonAdsConnector, amazonConfigFromEnv } from '../connectors/amazon.js';
+import { AmazonAdsConnector } from '../connectors/amazon.js';
 import { reportJobs, resetReportJob } from './report-jobs.js';
 
 const scoped = z.object({ dataset: datasetSchema }).strict();
@@ -38,18 +39,18 @@ export function brainRoutes(app: Express, store: Store) {
     z.object({ dataset: z.literal('workspace') })
       .strict()
       .parse(req.body);
-    const config = amazonConfigFromEnv('');
-    if (!config)
+    const discovered = await discoverAmazonProfiles(store);
+    if (!discovered.region)
       throw new AppError('Configure approved Amazon Ads API credentials on the server first.', 503);
-    res.json({
-      region: config.region,
-      profiles: await new AmazonAdsConnector(config).listProfiles(),
-    });
+    res.json(discovered);
   });
 
   app.post('/api/brain/accounts', async (req, res) => {
     const input = accountInput.parse(req.body);
-    const config = input.connector === 'amazon-ads' ? amazonConfigFromEnv(input.profileId) : null;
+    const config =
+      input.connector === 'amazon-ads'
+        ? amazonConfigFor(store, input.dataset, input.profileId)
+        : null;
     if (input.connector === 'amazon-ads' && input.dataset !== 'workspace')
       throw new AppError('Connect live profiles in Your workspace.');
     const profile = config
@@ -57,7 +58,9 @@ export function brainRoutes(app: Express, store: Store) {
           (p) => p.profileId === input.profileId,
         )
       : undefined;
-    res.status(201).json(store.transaction(() => createAccount(store, input, new Date(), profile)));
+    res
+      .status(201)
+      .json(store.transaction(() => createAccount(store, input, new Date(), profile, config || undefined)));
   });
 
   app.get('/api/brain/accounts/:id/reports', (req, res) => {

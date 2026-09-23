@@ -1,6 +1,6 @@
 # Product commerce profit and readiness
 
-Orbit v0.7 adds an independent product catalog, readiness contract, inventory controls, and paid-order ledger for the commerce track. It is a local operating workflow. It does not connect to Shopify, publish ads, reserve stock, or establish causal lift.
+Orbit v0.8 combines the independent product catalog, readiness contract, inventory controls, and paid-order ledger with a read-only Shopify observer. It does not publish ads, change Shopify, reserve stock, or establish causal lift.
 
 The contract follows the useful controls found in Enthusiast Supply Co. without copying its private operating records: an ad-ready idea is not a sale-ready SKU; supplier paperwork is not stock; platform-attributed purchases are not receipts; and missing economics cannot authorize spend.
 
@@ -130,18 +130,20 @@ The portfolio API performs the calculations in the local application process. Th
 
 ## Shopify connector boundary
 
-No Shopify credential, OAuth flow, webhook receiver, or API request is implemented in v0.7. The manual aggregate contract creates a reviewable boundary for that work. The connector should use the versioned GraphQL Admin API rather than the legacy REST Admin API, send the server-held token in `X-Shopify-Access-Token`, and initially request only the scopes needed for products, inventory, and orders: `read_products`, `read_inventory`, and `read_orders`. Shopify limits ordinary order access to the recent window; older backfills require approved `read_all_orders` access. Protected customer-data requirements must be evaluated during app review even though Orbit should not request or retain customer identity fields.
+The v0.8 observer implements OAuth/custom-token storage, versioned GraphQL requests, product variants, aggregate inventory quantity, recent paid/refunded order lines, raw-body webhook HMAC verification, overlap reconciliation, durable jobs, and exact case-sensitive SKU mapping. Access tokens use the server vault and never return to the browser. Blank/duplicate/unknown SKUs remain source facts and block full reconciliation. New products keep economics and release evidence unverified; a sync cannot overwrite those operator controls.
 
-The production adapter should:
+The adapter requests `read_products`, `read_inventory`, and `read_orders`. Ordinary order access is limited to Shopify's recent window, so the first sync uses sixty days and later syncs overlap seven days. An app with an approved older-order use case can add `read_all_orders`, but a complete historical backfill workflow is not yet implemented.
 
-1. Complete Shopify's authorization flow and keep the access token encrypted on the server, scoped to one tenant and shop.
-2. Discover variants and inventory items, preserve Shopify GIDs, and map the exact case-sensitive SKU. Ambiguous or blank SKUs go to an operator queue instead of an automatic join.
-3. Normalize paid order lines and later refunds into the ledger contract without importing customer identity, addresses, payment details, or free-form notes.
-4. Read location-aware inventory quantities and explicitly derive Orbit's saleable quantity. `available`, `on_hand`, `incoming`, and `committed` are distinct Shopify states; incoming stock must not authorize demand.
-5. Verify webhook HMAC signatures against the raw request body, deduplicate delivery IDs in a durable inbox, tolerate retries and out-of-order events, and process asynchronously.
-6. Run periodic GraphQL backfills and reconciliation because webhooks are notifications rather than a complete financial ledger. Maintain per-shop and per-SKU watermarks, including explicit successful zero-order coverage.
-7. Classify throttling, access revocation, partial pagination, schema drift, and reconciliation mismatches. A successful worker exit must not make incomplete data healthy.
-8. Start read-only. Compare normalized totals with authorized Shopify reports before allowing the data to influence budget proposals.
+Still required before a live scale decision:
+
+1. compare variant, inventory, receipt, and refund totals with the authorized store for identical dates;
+2. add location-aware inventory-state mapping where the fulfillment model needs `available`, `on_hand`, `incoming`, and `committed` separately;
+3. collect or separately reconcile refunded shipping, Shopify Payments disputes, and chargebacks;
+4. add explicit successful zero-order coverage per SKU instead of treating absence as a fresh zero;
+5. deploy the signed webhook endpoint behind authenticated HTTPS infrastructure; the current server remains loopback-only;
+6. complete app review/protected-data assessment without expanding the no-customer-data contract.
+
+See [Connected observation](CONNECTIONS.md) for the shared credential, OAuth, jobs, and health contract.
 
 Primary Shopify references checked for the 2026-07 Admin API contract:
 

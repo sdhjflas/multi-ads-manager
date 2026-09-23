@@ -42,7 +42,7 @@ The following milestones describe remaining production work.
 - Preserved publisher refund adjustments and retained spend on zero-click product days.
 - Browser workflows, accessibility checks, and transaction/correction regression coverage.
 
-See [Reporting hub](REPORTING.md). Live OAuth, automated collection, native Meta/TikTok and Amazon target/search-term adapters, and production client authorization remain in the following milestones.
+See [Reporting hub](REPORTING.md). The later v0.8 milestone adds OAuth and automated read-only collection; TikTok, hosted identity, and production authorization evidence remain.
 
 ## Milestone 0.4 — implemented brain and book portfolio
 
@@ -91,7 +91,21 @@ See [The brain](BRAIN.md) and [Amazon API contract](AMAZON_API.md).
 
 See [Product commerce](COMMERCE.md).
 
-Remaining from Milestones 1–3: the OAuth authorization flow, Meta/TikTok/Shopify adapters, encrypted multi-tenant credential storage, placement and complex product-expression actions, automated Shopify and publisher settlement reconciliation, and a live supervised pilot.
+## Milestone 0.8 — implemented connected observation control plane
+
+- One client-scoped connection model for Shopify, Meta Ads, Amazon Ads, and PBS HQ, with provider capabilities, external identity, source watermarks, freshness, reconciliation counts, and audit events.
+- AES-256-GCM server credential vault, credential-presence-only browser responses, one-time OAuth state, Shopify callback HMAC, Meta long-lived-token exchange, and Amazon Login with Amazon refresh-token exchange.
+- Durable read-only jobs, crash recovery, signed Shopify webhook triggers, overlap refreshes, due-sync scheduling, classified failures, bounded response bodies, safe pagination, and strict source response contracts.
+- Shopify product/variant/inventory and no-PII paid-order/refund reconciliation into the product portfolio while preserving manual economics and release approvals.
+- Meta account/entity discovery and daily ad-level Insights with one purchase-action basis and exact campaign mapping coverage.
+- Amazon profile/entity discovery from environment or encrypted client authorization, with bootstrap-workspace handoff to the existing restart-safe Reporting v3 Brain workflow; secondary-client credentials fail closed outside the legacy dataset-scoped Brain.
+- PBS publisher-scoped book, availability, return, and newest-settlement collection; exact ISBN reconciliation with 72-hour availability expiry and without inventing ASINs or per-unit economics.
+- Responsive connection control center with source health, capabilities, counts, sync controls, credential revocation, durable job history, and demo/workspace separation.
+- Operator/client/membership schema and scope checks. The app remains loopback-only until external identity, hosted sessions, PostgreSQL row-level security, and a deployment threat review are implemented.
+
+See [Connected observation](CONNECTIONS.md).
+
+Remaining from Milestones 1–3: live-account authorization evidence, Shopify dispute/chargeback collection, Meta event-quality and creative-asset provenance, TikTok, complete historical PBS settlement backfill, hosted identity/PostgreSQL tenancy, placement and complex product-expression actions, and a supervised pilot.
 
 ## Milestone 1 — connected observation, two equal tracks
 

@@ -89,4 +89,4 @@ Dataset/campaign scope applies to plans, exports, conclusions, reuse, and AI con
 
 ## Limits and connection work
 
-This release supports 200 waves/workspace, 4,000 learning revisions, and 500 target definitions/campaign. Native search-term harvesting, platform experiments, asset verification, and ad execution remain future work. Authorized Ads reporting and independent Shopify/PBS reconciliation are still the next connection milestones; wave and reporting-ID contracts now provide their measurement destination.
+This release supports 200 waves/workspace, 4,000 learning revisions, and 500 target definitions/campaign. Native search-term harvesting exists in the Amazon Brain, and read-only Shopify/PBS reconciliation exists in Connections. Platform-native experiments, creative asset verification, cross-source causal attribution, and general ad execution remain future work; wave and reporting-ID contracts provide their measurement destination.

@@ -116,7 +116,7 @@ test('builds a distinct candidate library, enforces wave selection, and preserve
   expect((await download).suggestedFilename()).toMatch(/^orbit-experiment-/);
 });
 
-test('mobile layout contains overflow and offers usable navigation and setup guides', async ({
+test('mobile layout contains overflow and offers a usable connection control center', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -131,15 +131,25 @@ test('mobile layout contains overflow and offers usable navigation and setup gui
   await expect(
     page.getByRole('heading', { name: 'Bring the right signals together.' }),
   ).toBeVisible();
+  await expect(page.getByText('Observation mode is locked on.')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.getByRole('button', { name: /Open Your workspace/ }).click();
+  await page.getByRole('button', { name: 'Add client' }).click();
+  await page.getByRole('dialog').getByLabel('Client name').fill('E2E Books Client');
+  await page.getByRole('dialog').getByRole('button', { name: 'Create client workspace' }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByLabel('Client scope')).toHaveValue(/.+/);
+  await expect(page.getByLabel('Client scope').locator('option:checked')).toHaveText(
+    'E2E Books Client',
+  );
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page
     .locator('.connection-card')
     .filter({ has: page.getByRole('heading', { name: 'Amazon Ads', exact: true }) })
-    .getByRole('button', { name: 'View setup guide' })
+    .getByRole('button', { name: 'Connect Amazon Ads' })
     .click();
-  await expect(page.getByRole('dialog')).toContainText(
-    'A simulated account is available without credentials',
-  );
+  await expect(page.getByRole('dialog')).toContainText('Read-only collection');
+  await expect(page.getByRole('dialog')).toContainText('Existing server API configuration');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).not.toBeVisible();
 });

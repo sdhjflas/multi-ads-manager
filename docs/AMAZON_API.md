@@ -14,7 +14,9 @@ Orbit uses Login with Amazon refresh-token authentication and the regional Amazo
 
 The server discovers profiles with `GET /v2/profiles`. That request uses the bearer token and client ID without a profile scope. A selected profile supplies the country, currency, account type, and IANA timezone. Orbit currently accepts USD profiles, records the configured region, and refuses later synchronization if Amazon's profile identity, marketplace, currency, or timezone no longer matches.
 
-Credentials stay in server environment variables. The browser receives profile metadata, never the client secret, refresh token, or access token. One credential set and region are supported per local server. The repository does not implement the advertiser consent flow, token encryption, credential rotation, network authentication, or client tenancy.
+Credentials can stay in server environment variables or enter the v0.8 connection control plane through approved Login with Amazon consent or a server-credential form. Saved credentials use AES-256-GCM with connection-bound authenticated data and are scoped to a client membership. The browser receives profile metadata and a credential-present flag, never the client secret, refresh token, access token, or ciphertext. Multiple read-only advertiser authorizations and regions can coexist. Connection credentials are always constructed with writes disabled; the legacy environment path remains the only path that can satisfy the separate server write switch.
+
+The consent callback uses a single-use, ten-minute OAuth state. Orbit stores the refresh token, discovers profiles, and requires an explicit profile when an authorization can see more than one. See [Connected observation](CONNECTIONS.md) for the shared lifecycle, local security boundary, and hosted-auth work that remains.
 
 Sources: [retrieve profiles](https://advertising.amazon.com/API/docs/en-us/guides/get-started/retrieve-profiles), [regional endpoints](https://advertising.amazon.com/API/docs/en-us/reference/api-overview), [authorization](https://advertising.amazon.com/API/docs/en-us/guides/account-management/authorization/overview).
 

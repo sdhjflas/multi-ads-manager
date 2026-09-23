@@ -188,6 +188,22 @@ describe('book economics', () => {
     expect(bookViews(store, 'workspace', 7, now)[0].riskExposureCents).toBe(1000); // fixed risk window
     expect(bookViews(store, 'demo', 56, now)).toHaveLength(0);
   });
+
+  it('fails closed when PBS-derived supply evidence becomes stale', () => {
+    const [book] = saveBooks(store, account, [input], now);
+    const pbsBook = {
+      ...book,
+      supplySource: 'pbs',
+      supplyVerifiedAt: new Date(now.getTime() - 73 * 3_600_000).toISOString(),
+    };
+    store.db
+      .prepare('UPDATE book_catalog SET body=? WHERE id=?')
+      .run(JSON.stringify(pbsBook), book.id);
+    expect(bookViews(store, 'workspace', 56, now)[0]).toMatchObject({
+      status: 'stale',
+      reason: 'Refresh PBS availability before changing delivery for this edition.',
+    });
+  });
   it('holds unverified, unavailable, unviable, and overspent titles independently', () => {
     saveBooks(store, account, [input], now);
     store.transaction(() =>

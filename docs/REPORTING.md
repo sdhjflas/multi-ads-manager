@@ -75,9 +75,9 @@ Corrections refresh current economics and test evaluations. Frozen findings rema
 - Workspace limits: 2,000 campaigns, 100 sources, 500 batches; 200 mappings per source.
 - Batch limits: 1 MB CSV, 10,000 rows total, 500 saved target definitions per campaign, last two years of completed dates. The campaign parser also caps each campaign at 2,000 daily rows.
 - JSON body limit: 2 MB. Only aggregates are accepted; do not include personal or order-level records.
-- SQLite schema version 6 retains source contracts, bindings, normalized payloads, receipts, and observation revisions alongside the brain, durable Amazon reports, and book portfolio tables.
+- SQLite schema version 8 retains source contracts, bindings, normalized payloads, receipts, observation revisions, encrypted connection metadata, durable connection jobs, and client-scoped audit events alongside the brain and portfolio tables.
 - Raw CSV is not retained. SHA-256 content and contract hashes identify receipts. These are local integrity references, not a signed or tamper-proof archive.
 - Single-campaign importers remain available. Batch previews detect their observation changes and require review. Single imports have activity entries but do not create batch revision receipts.
-- CSV sources remain local advisory work. The Amazon Ads connector has scheduled local collection and supervised mutations, but its OAuth consent flow, production client authorization, and hosted job infrastructure remain future work. Meta/TikTok connections remain future integrations.
+- CSV sources remain local advisory work. v0.8 adds encrypted Amazon consent, Meta Insights, Shopify, and PBS observation adapters with durable local jobs. TikTok, hosted identity/queue infrastructure, and live-account reconciliation evidence remain future work. See [Connected observation](CONNECTIONS.md).
 
 The API starts at `/api/reporting`, with `/sources` and `/batches` below it. Source templates and batch refresh, commit, discard, and paginated revisions use their respective IDs. Reads and writes are dataset-scoped, creation accepts only `workspace`, and mutations require the existing same-origin local request header. This supports the local browser workflow; it is not hosted authentication.

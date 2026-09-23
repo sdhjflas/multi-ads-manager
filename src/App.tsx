@@ -69,6 +69,7 @@ import { ReportingHub } from './Reporting';
 import { BrainPage } from './Brain';
 import { BooksPage } from './Books';
 import { CommercePage } from './Commerce';
+import { ConnectionsPage } from './Connections';
 
 type Page =
   | 'overview'
@@ -181,7 +182,7 @@ const pageCopy: Record<Page, { eyebrow: string; title: string; subtitle: string 
   connections: {
     eyebrow: 'YOUR CONNECTED WORKSPACE',
     title: 'Bring the right signals together.',
-    subtitle: 'Prepare your ad accounts, business data, and optional AI provider.',
+    subtitle: 'Authorize read-only ad, commerce, and publisher sources and monitor their evidence.',
   },
   reporting: {
     eyebrow: 'THE EVIDENCE INBOX',
@@ -1094,84 +1095,11 @@ export function App() {
                 </>
               )}
               {page === 'connections' && (
-                <>
-                  <div className="connections-status">
-                    <span>
-                      <i
-                        className={`dot ${data.integrations.amazonAds.configured ? 'green' : 'amber'}`}
-                      />
-                      {data.integrations.amazonAds.configured
-                        ? 'Amazon Ads credentials configured'
-                        : 'No live ad credentials · sandbox available'}
-                    </span>
-                    <span>
-                      <FileUp size={15} />
-                      CSV imports available now
-                    </span>
-                    <span>
-                      <Sparkles size={15} />
-                      {data.ai.configured ? 'AI provider configured' : 'Structured planner ready'}
-                    </span>
-                  </div>
-                  <div className="connections-grid">
-                    {connections
-                      .filter((c) =>
-                        `${c.name} ${c.description}`.toLowerCase().includes(query.toLowerCase()),
-                      )
-                      .map((c) => (
-                        <article className="connection-card" key={c.id}>
-                          <div className="connection-top">
-                            <span className={`integration-mark ${c.className}`}>{c.letter}</span>
-                            <Badge
-                              kind={
-                                (c.id === 'openai' && data.integrations.openai) ||
-                                (c.id === 'anthropic' && data.integrations.anthropic) ||
-                                (c.id === 'amazon' && data.integrations.amazonAds.configured)
-                                  ? 'scale'
-                                  : 'neutral'
-                              }
-                            >
-                              {c.id === 'openai' && data.integrations.openai
-                                ? 'Configured · unverified'
-                                : c.id === 'anthropic' && data.integrations.anthropic
-                                  ? 'Configured · unverified'
-                                  : c.id === 'amazon' && data.integrations.amazonAds.configured
-                                    ? data.integrations.amazonAds.writesEnabled
-                                      ? 'Credentials set · writes enabled'
-                                      : 'Credentials set · read-only'
-                                    : c.status}
-                            </Badge>
-                          </div>
-                          <span className="eyebrow">{c.category}</span>
-                          <h2>{c.name}</h2>
-                          <p>{c.description}</p>
-                          <button
-                            className="button secondary"
-                            onClick={() => setModal({ type: 'connection', id: c.id })}
-                          >
-                            View setup guide
-                            <ArrowUpRight size={15} />
-                          </button>
-                        </article>
-                      ))}
-                  </div>
-                  <div className="import-callout">
-                    <span className="empty-icon">
-                      <FileUp size={25} />
-                    </span>
-                    <div>
-                      <h3>Your reports can start the learning.</h3>
-                      <p>
-                        Map your reporting sources and preview campaign or target batches while API
-                        access is being prepared.
-                      </p>
-                    </div>
-                    <button className="button primary" onClick={() => navigate('reporting')}>
-                      Open Reporting hub
-                      <ArrowRight size={15} />
-                    </button>
-                  </div>
-                </>
+                <ConnectionsPage
+                  dataset={dataset}
+                  onWorkspace={() => setDataset('workspace')}
+                  onNotice={(message, error = false) => setToast({ message, error })}
+                />
               )}
               {page === 'activity' && (
                 <section className="panel activity-panel">
@@ -1225,7 +1153,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.7<span className="footer-dot">·</span>Local advisory mode
+              Orbit v0.8<span className="footer-dot">·</span>Connected observation mode
               <ShieldCheck size={12} />
             </span>
           </footer>

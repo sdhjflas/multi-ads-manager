@@ -6,6 +6,7 @@ import { Store } from './store.js';
 import { seedBrain } from './brain/seed.js';
 import { connectorFor } from './brain/accounts.js';
 import { runBrain } from './brain/execution.js';
+import type { ConnectionService } from './connections/service.js';
 
 const host = process.env.HOST || '127.0.0.1';
 if (!['127.0.0.1', 'localhost', '::1'].includes(host))
@@ -50,7 +51,34 @@ timer?.unref();
 const reportTimer =
   Number.isFinite(interval) && interval > 0 ? setInterval(() => cycle(true), 60000) : null;
 reportTimer?.unref();
-const server = createApp(store).listen(port, host, () =>
+const app = createApp(store);
+const connectionService = app.locals.connectionService as ConnectionService;
+const connectionInterval = Number(process.env.CONNECTION_SYNC_INTERVAL_MINUTES ?? '5');
+if (!Number.isFinite(connectionInterval) || connectionInterval < 0)
+  throw new Error('CONNECTION_SYNC_INTERVAL_MINUTES must be zero or a positive number.');
+let connectionCycling = false;
+async function connectionCycle() {
+  if (connectionCycling || closing) return;
+  connectionCycling = true;
+  try {
+    await connectionService.processQueuedJobs();
+    await connectionService.syncDueConnections();
+  } catch (error) {
+    console.error(
+      'Connection cycle failed:',
+      error instanceof Error ? error.message : 'unknown',
+    );
+  } finally {
+    connectionCycling = false;
+  }
+}
+void connectionCycle();
+const connectionTimer =
+  connectionInterval > 0
+    ? setInterval(() => void connectionCycle(), connectionInterval * 60_000)
+    : null;
+connectionTimer?.unref();
+const server = app.listen(port, host, () =>
   console.log(`Orbit API ready at http://${host}:${port} · local operator mode`),
 );
 function shutdown() {
@@ -58,8 +86,9 @@ function shutdown() {
   closing = true;
   if (reportTimer) clearInterval(reportTimer);
   if (timer) clearInterval(timer);
+  if (connectionTimer) clearInterval(connectionTimer);
   server.close(async () => {
-    while (cycling) await new Promise((resolve) => setTimeout(resolve, 100));
+    while (cycling || connectionCycling) await new Promise((resolve) => setTimeout(resolve, 100));
     store.close();
     process.exit(0);
   });

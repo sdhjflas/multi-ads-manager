@@ -6,7 +6,8 @@ import { Store } from '../store.js';
 import { AppError, datasetSchema } from '../validation.js';
 import type { Connector } from '../connectors/connector.js';
 import { SandboxConnector, sandboxSpec, type SandboxState } from '../connectors/sandbox.js';
-import { AmazonAdsConnector, amazonConfigFromEnv } from '../connectors/amazon.js';
+import { type AmazonConfig, AmazonAdsConnector } from '../connectors/amazon.js';
+import { amazonConfigFor } from '../connections/amazon-config.js';
 import { dayAt } from '../engine.js';
 import { SqliteReportCache, syncPlan } from './report-jobs.js';
 
@@ -89,10 +90,15 @@ export function createAccount(
   input: z.infer<typeof accountInput>,
   now = new Date(),
   verifiedProfile?: Awaited<ReturnType<AmazonAdsConnector['listProfiles']>>[number],
+  verifiedConfig?: AmazonConfig,
 ): AdAccount {
   if (store.accounts(input.dataset).length >= 20)
     throw new AppError('This local release supports 20 connected accounts per workspace.');
-  if (input.connector === 'amazon-ads' && !amazonConfigFromEnv(input.profileId))
+  const liveConfig =
+    input.connector === 'amazon-ads'
+      ? verifiedConfig || amazonConfigFor(store, input.dataset, input.profileId)
+      : null;
+  if (input.connector === 'amazon-ads' && !liveConfig)
     throw new AppError(
       'Set AMAZON_ADS_CLIENT_ID, AMAZON_ADS_CLIENT_SECRET, and AMAZON_ADS_REFRESH_TOKEN on the server before connecting an Amazon Ads profile.',
       503,
@@ -128,7 +134,7 @@ export function createAccount(
     timezone: verifiedProfile?.timezone || 'UTC',
     ...(verifiedProfile
       ? {
-          region: amazonConfigFromEnv(input.profileId)!.region,
+          region: liveConfig!.region,
           verifiedAt: now.toISOString(),
           accountType: verifiedProfile.accountInfo.type,
         }
@@ -210,7 +216,7 @@ export function connectorFor(store: Store, account: AdAccount, now = new Date())
       today: () => dayAt(accountNow(store, account.dataset, now)),
     });
   }
-  const config = amazonConfigFromEnv(account.profileId);
+  const config = amazonConfigFor(store, account.dataset, account.profileId);
   if (!config) throw new AppError('Amazon Ads credentials are not configured on the server.', 503);
   if (account.region && config.region !== account.region)
     throw new AppError(

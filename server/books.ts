@@ -292,6 +292,11 @@ export function bookViews(store: Store, dataset: Dataset, days = 56, now = new D
         .at(-1) || null;
     let status: BookView['status'] = 'learning',
       reason = 'Collect mature same-ASIN conversions before increasing spend.';
+    const publisherSupplyStale =
+      book.supplySource === 'pbs' &&
+      (!book.supplyVerifiedAt ||
+        clock.getTime() - Date.parse(book.supplyVerifiedAt) < 0 ||
+        clock.getTime() - Date.parse(book.supplyVerifiedAt) > 72 * 3_600_000);
     if (!book.economicsVerified) {
       status = 'unverified';
       reason = 'Verify net receipts and costs for this format.';
@@ -301,6 +306,9 @@ export function bookViews(store: Store, dataset: Dataset, days = 56, now = new D
     } else if (!book.supplyReady) {
       status = 'unavailable';
       reason = 'Confirm this edition is available to buy.';
+    } else if (publisherSupplyStale) {
+      status = 'stale';
+      reason = 'Refresh PBS availability before changing delivery for this edition.';
     } else if (!rows.length) {
       status = 'no-data';
       reason = 'No advertised-product data for this ASIN in the selected window.';

@@ -169,7 +169,65 @@ export class Store {
         batch_id TEXT NOT NULL REFERENCES commerce_ledger_batches(id), position INTEGER NOT NULL,
         body TEXT NOT NULL, PRIMARY KEY(batch_id,position)
       );
-      PRAGMA user_version = 7;
+      CREATE TABLE IF NOT EXISTS client_workspaces (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        name TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(dataset,name)
+      );
+      CREATE INDEX IF NOT EXISTS client_workspaces_scope ON client_workspaces(dataset,id);
+      CREATE TABLE IF NOT EXISTS operators (
+        id TEXT PRIMARY KEY, display_name TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS client_memberships (
+        operator_id TEXT NOT NULL REFERENCES operators(id),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK(role IN ('owner','operator','viewer')),
+        created_at TEXT NOT NULL, PRIMARY KEY(operator_id,client_id)
+      );
+      CREATE INDEX IF NOT EXISTS client_memberships_client ON client_memberships(client_id,operator_id);
+      CREATE TABLE IF NOT EXISTS source_connections (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id), provider TEXT NOT NULL,
+        status TEXT NOT NULL, updated_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS source_connections_scope
+        ON source_connections(dataset,client_id,provider,updated_at);
+      CREATE TABLE IF NOT EXISTS connection_secrets (
+        connection_id TEXT PRIMARY KEY REFERENCES source_connections(id) ON DELETE CASCADE,
+        key_id TEXT NOT NULL, updated_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS connection_oauth_states (
+        state_hash TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        dataset TEXT NOT NULL, client_id TEXT NOT NULL, provider TEXT NOT NULL,
+        expires_at TEXT NOT NULL, consumed_at TEXT, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS connection_oauth_expiry ON connection_oauth_states(expires_at);
+      CREATE TABLE IF NOT EXISTS connection_jobs (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, client_id TEXT NOT NULL,
+        connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        status TEXT NOT NULL, started_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS connection_jobs_scope
+        ON connection_jobs(dataset,client_id,connection_id,started_at);
+      CREATE TABLE IF NOT EXISTS connection_objects (
+        connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL, external_id TEXT NOT NULL, observed_at TEXT NOT NULL,
+        fingerprint TEXT NOT NULL, body TEXT NOT NULL,
+        PRIMARY KEY(connection_id,kind,external_id)
+      );
+      CREATE INDEX IF NOT EXISTS connection_objects_kind
+        ON connection_objects(connection_id,kind,observed_at);
+      CREATE TABLE IF NOT EXISTS connection_events (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL, client_id TEXT NOT NULL,
+        connection_id TEXT, action TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS connection_events_scope
+        ON connection_events(dataset,client_id,created_at);
+      CREATE TABLE IF NOT EXISTS connection_webhook_receipts (
+        connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        delivery_id TEXT NOT NULL, topic TEXT NOT NULL, received_at TEXT NOT NULL,
+        PRIMARY KEY(connection_id,delivery_id)
+      );
+      PRAGMA user_version = 8;
     `);
   }
   transaction<T>(fn: () => T): T {

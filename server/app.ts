@@ -21,12 +21,17 @@ import { commerceRoutes } from './commerce-routes.js';
 import { commerceCampaignViews, gateCommerceDecision } from './commerce.js';
 import { ConnectorError } from './connectors/connector.js';
 import { amazonConfigured } from './connectors/amazon.js';
+import { amazonConnectionConfigured } from './connections/amazon-config.js';
 import { campaignView, dayAt, decide, metrics, sumMetrics } from './engine.js';
 import { importTemplate, parseImport } from './importer.js';
 import { createExperiment, planVariants } from './planner.js';
 import { getLearningViews, getWaveViews, holdForOpenWave } from './waves.js';
 import { waveRoutes } from './wave-routes.js';
 import { reportRoutes } from './report-routes.js';
+import { connectionRoutes, shopifyWebhookRoute } from './connection-routes.js';
+import { ConnectionRepository } from './connections/repository.js';
+import { ConnectionService } from './connections/service.js';
+import { vaultFromEnv, type CredentialVault } from './security/vault.js';
 import {
   AppError,
   campaignInput,
@@ -49,8 +54,26 @@ const filters = z.object({
   days: z.enum(['7', '28', '56']).default('28'),
 });
 
-export function createApp(store: Store) {
+export interface AppOptions {
+  vault?: CredentialVault | null;
+  fetcher?: typeof fetch;
+  clock?: () => Date;
+}
+
+export function createApp(store: Store, options: AppOptions = {}) {
   const app = express();
+  const repository = new ConnectionRepository(
+    store,
+    options.vault === undefined ? vaultFromEnv() : options.vault,
+  );
+  const connectionService = new ConnectionService(
+    store,
+    repository,
+    options.fetcher || fetch,
+    options.clock || (() => new Date()),
+  );
+  connectionService.recoverInterruptedJobs();
+  app.locals.connectionService = connectionService;
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -69,7 +92,10 @@ export function createApp(store: Store) {
     if (!['localhost', '127.0.0.1', '[::1]'].includes(host))
       return res.status(403).json({ error: 'Use the local loopback address.' });
     if (req.path.startsWith('/api')) res.setHeader('Cache-Control', 'no-store');
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    if (
+      !['GET', 'HEAD', 'OPTIONS'].includes(req.method) &&
+      !req.path.startsWith('/api/webhooks/shopify/')
+    ) {
       const origin = req.headers.origin;
       const validOrigins = [
         `http://localhost:5173`,
@@ -89,6 +115,8 @@ export function createApp(store: Store) {
     }
     next();
   });
+  // Webhook verification needs the exact bytes and must run before JSON parsing.
+  shopifyWebhookRoute(app, connectionService);
   app.use(express.json({ limit: '2mb' }));
   app.get('/api/health', (_req, res) =>
     res.json({
@@ -194,8 +222,9 @@ export function createApp(store: Store) {
       },
       integrations: {
         amazonAds: {
-          configured: amazonConfigured(),
-          writesEnabled: process.env.AMAZON_ADS_WRITES_ENABLED === 'true',
+          configured: amazonConfigured() || amazonConnectionConfigured(store),
+          writesEnabled:
+            amazonConfigured() && process.env.AMAZON_ADS_WRITES_ENABLED === 'true',
         },
         anthropic: config.anthropic,
         openai: config.openai,
@@ -505,6 +534,7 @@ export function createApp(store: Store) {
   brainRoutes(app, store);
   bookRoutes(app, store);
   commerceRoutes(app, store);
+  connectionRoutes(app, connectionService);
 
   app.get('/api/export', (req, res) => {
     const { dataset, vertical, days } = filters.parse(req.query);

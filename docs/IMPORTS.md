@@ -49,7 +49,7 @@ The console profile does not contain publisher net-receipt refund adjustments. N
 
 The database key is `(campaign_id, date)`. Importing a refreshed report replaces overlapping rows. It never adds a second copy. The entire import is transactional. If one row would replace a newer export with an older one, the whole import is rejected.
 
-The campaign's item, channel, vertical, and click window cannot change after importing observations or registering target IDs or a saved source. Create a separate campaign for a changed definition. Unit economics are explicit static assumptions for the entire reporting period in this release; editing them recomputes the model and changes the evidence fingerprint. Effective-dated costs and an independently reconciled ledger are planned.
+The campaign's item, channel, vertical, and click window cannot change after importing observations or registering target IDs or a saved source. Create a separate campaign for a changed definition. Unit economics are explicit static assumptions for the entire reporting period in this release; editing them recomputes the model and changes the evidence fingerprint. The product portfolio has an independently reconciled ledger, while effective-dated cost versions remain future work.
 
 An export can contain at most 2,000 daily rows and 1 MB of CSV, covering the last two years. The API body limit is 2 MB. This local tool stores only aggregates. It is not a place for names, emails, IP addresses, session IDs, or order-level records.
 

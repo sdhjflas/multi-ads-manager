@@ -17,6 +17,8 @@ export interface Book {
   dailyBudgetLimitCents: number;
   economicsVerified: boolean;
   supplyReady: boolean;
+  supplySource?: 'pbs';
+  supplyVerifiedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
