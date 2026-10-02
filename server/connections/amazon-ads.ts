@@ -104,12 +104,16 @@ export class AmazonAdsObserver implements ProviderObserver {
     const startDate = dayAt(current, -60, profile.timezone);
     let campaignReport: ReportRow[] = [];
     let productReport: ReportRow[] = [];
+    let keywordReport: ReportRow[] = [];
+    let targetReport: ReportRow[] = [];
     let pending = false;
     let retryAfterMs = 60_000;
     try {
-      [campaignReport, productReport] = await Promise.all([
+      [campaignReport, productReport, keywordReport, targetReport] = await Promise.all([
         connector.report('campaign', startDate, endDate, 14),
         connector.report('advertisedProduct', startDate, endDate, 14),
+        connector.report('keyword', startDate, endDate, 14),
+        connector.report('productTarget', startDate, endDate, 14),
       ]);
     } catch (error) {
       if (!(error instanceof ConnectorError) || error.kind !== 'pending') throw error;
@@ -145,6 +149,18 @@ export class AmazonAdsObserver implements ProviderObserver {
           observedAt: value.observedAt || now,
           value,
         })),
+        'keyword-insight': keywordReport.map((value) => ({
+          kind: 'keyword-insight',
+          externalId: `${value.keywordExternalId || 'unknown'}:${value.date}`,
+          observedAt: value.observedAt || now,
+          value,
+        })),
+        'product-target-insight': targetReport.map((value) => ({
+          kind: 'product-target-insight',
+          externalId: `${value.keywordExternalId || 'unknown'}:${value.date}`,
+          observedAt: value.observedAt || now,
+          value,
+        })),
       },
       counts: {
         accounts: profiles.length,
@@ -153,12 +169,16 @@ export class AmazonAdsObserver implements ProviderObserver {
         keywords: keywords.length,
         targets: targets.length,
         negatives: negatives.length + negativeTargets.length,
-        insights: campaignReport.length + productReport.length,
+        insights:
+          campaignReport.length +
+          productReport.length +
+          keywordReport.length +
+          targetReport.length,
       },
       watermark: null,
       sourceAsOf: now,
       warnings: pending
-        ? ['Amazon is generating restart-safe daily campaign and advertised-product reports.']
+        ? ['Amazon is generating restart-safe daily campaign, advertised-product, keyword, and product-target reports.']
         : [],
       pending,
       retryAfterMs,

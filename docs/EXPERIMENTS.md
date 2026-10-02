@@ -2,6 +2,8 @@
 
 Orbit v0.2 connects candidate libraries to measured cells, fixed test windows, and versioned findings. The same workflow serves product creatives and Amazon book keywords. It works with console-managed advertising and normalized report imports while live API access is being arranged.
 
+Orbit v0.10 adds a second, client-scoped workflow in **Profit control** for large candidate queues over connected evidence. It registers immutable product assets, binds active arms to exact Meta ads or Amazon targets, freezes economics and attribution maturity, evaluates source facts, and advances bounded waves. See [Client profit control](PROFIT_CONTROL.md). The workflow below describes the original campaign-scoped Experiment lab and learning library.
+
 This release implements **observational screening**. It does not randomize people, create ads, change bids, prove incremental lift, or enforce an external cash cap.
 
 ## Operator workflow
@@ -27,7 +29,7 @@ Prospective registration requires a first date after the current UTC day. Histor
 
 Windows cover 7–56 days, within retained two-year history and the next 90 days. Exactly one baseline and at least one shortlisted challenger are required. Reporting IDs are distinct. A target cannot appear in overlapping wave windows, including cancelled/concluded waves, preventing duplicate evidence and budget accounting. Use a later window or distinct cells for another test.
 
-Commerce arms use creative cells. Amazon challengers currently use keyword candidates; a book baseline can also use an automatic or product target. Product-target generation and independent asset verification remain future work.
+In this original Experiment lab, commerce arms use imported creative cells. Amazon challengers use keyword candidates; a book baseline can also use an automatic or product target. The client-scoped Profit control workflow separately supports approved asset versions and exact keyword or product-target bindings over connected facts.
 
 ## Local budget accounting
 
@@ -89,4 +91,4 @@ Dataset/campaign scope applies to plans, exports, conclusions, reuse, and AI con
 
 ## Limits and connection work
 
-This release supports 200 waves/workspace, 4,000 learning revisions, and 500 target definitions/campaign. Native search-term harvesting exists in the Amazon Brain, and read-only Shopify/PBS reconciliation exists in Connections. Platform-native experiments, creative asset verification, cross-source causal attribution, and general ad execution remain future work; wave and reporting-ID contracts provide their measurement destination.
+The original Experiment lab supports 200 waves/workspace, 4,000 learning revisions, and 500 target definitions/campaign. Native search-term harvesting exists in the Amazon Brain, approved commerce asset provenance exists in Profit control, and read-only Shopify/PBS reconciliation exists in Connections. Platform-native randomized experiments, creative media production, cross-source causal attribution, and general ad execution remain future work; wave and reporting-ID contracts provide their measurement destination.

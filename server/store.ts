@@ -282,7 +282,35 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS profit_test_plans_scope
         ON profit_test_plans(dataset,client_id,status,updated_at);
-      PRAGMA user_version = 9;
+      CREATE TABLE IF NOT EXISTS profit_assets (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES profit_items(id) ON DELETE CASCADE,
+        content_hash TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL,
+        UNIQUE(client_id,item_id,content_hash)
+      );
+      CREATE INDEX IF NOT EXISTS profit_assets_scope
+        ON profit_assets(dataset,client_id,item_id,status,created_at);
+      CREATE TABLE IF NOT EXISTS profit_test_waves (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        test_id TEXT NOT NULL REFERENCES profit_test_plans(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, body TEXT NOT NULL,
+        UNIQUE(test_id,sequence)
+      );
+      CREATE INDEX IF NOT EXISTS profit_test_waves_scope
+        ON profit_test_waves(dataset,client_id,test_id,status,updated_at);
+      CREATE TABLE IF NOT EXISTS profit_candidate_bindings (
+        id TEXT PRIMARY KEY, dataset TEXT NOT NULL CHECK(dataset IN ('demo','workspace')),
+        client_id TEXT NOT NULL REFERENCES client_workspaces(id) ON DELETE CASCADE,
+        test_id TEXT NOT NULL REFERENCES profit_test_plans(id) ON DELETE CASCADE,
+        candidate_id TEXT NOT NULL, connection_id TEXT NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+        source_kind TEXT NOT NULL, external_id TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL,
+        UNIQUE(test_id,candidate_id), UNIQUE(test_id,connection_id,source_kind,external_id)
+      );
+      CREATE INDEX IF NOT EXISTS profit_candidate_bindings_scope
+        ON profit_candidate_bindings(dataset,client_id,test_id,candidate_id);
+      PRAGMA user_version = 10;
     `);
   }
   transaction<T>(fn: () => T): T {

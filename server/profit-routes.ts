@@ -97,6 +97,27 @@ export function profitRoutes(app: Express, service: ProfitControlService) {
     res.status(201).json(service.optimize(input.dataset, input.clientId, input.poolId));
   });
 
+  app.post('/api/profit-control/assets', (req, res) => {
+    const input = z
+      .object({
+        dataset: z.literal('workspace'),
+        clientId: id,
+        itemId: id,
+        kind: z.enum(['image', 'video', 'copy', 'landing-page']),
+        name: z.string().trim().min(1).max(200),
+        contentHash: z.string().trim().regex(/^[a-fA-F0-9]{64}$/),
+        sourceRef: z.string().trim().min(1).max(1000),
+        rightsApproved: z.boolean(),
+        claimsApproved: z.boolean(),
+        evidenceApproved: z.boolean(),
+        approvalNote: z.string().trim().max(1000),
+        supersedesId: id.optional(),
+      })
+      .strict()
+      .parse(req.body);
+    res.status(201).json(service.createAsset(input));
+  });
+
   app.post('/api/profit-control/tests', (req, res) => {
     const input = z
       .object({
@@ -115,8 +136,8 @@ export function profitRoutes(app: Express, service: ProfitControlService) {
         seeds: z.array(z.string().trim().min(2).max(160)).min(1).max(50),
         count: z.number().int().min(2).max(300),
         lossBudgetCents: cents.positive(),
-        maxConcurrent: z.number().int().min(1).max(20),
-        assetEvidenceApproved: z.boolean(),
+        maxConcurrent: z.number().int().min(2).max(20),
+        assetIds: z.array(id).max(10).default([]),
       })
       .strict()
       .parse(req.body);
@@ -133,5 +154,81 @@ export function profitRoutes(app: Express, service: ProfitControlService) {
       .strict()
       .parse(req.body);
     res.json(service.activateTest(input.dataset, input.clientId, String(req.params.id)));
+  });
+
+  app.get('/api/profit-control/tests/:id/sources', (req, res) => {
+    const input = z
+      .object({ dataset: z.enum(['demo', 'workspace']), clientId: id })
+      .strict()
+      .parse(req.query);
+    res.json(service.experimentSources(input.dataset, input.clientId, String(req.params.id)));
+  });
+
+  app.post('/api/profit-control/tests/:id/waves/:waveId/setup', (req, res) => {
+    const input = z
+      .object({
+        dataset: z.literal('workspace'),
+        clientId: id,
+        bindings: z
+          .array(
+            z
+              .object({
+                candidateId: id,
+                connectionId: id,
+                sourceKind: z.enum(['ad', 'keyword', 'product-target']),
+                externalId: id,
+              })
+              .strict(),
+          )
+          .max(20),
+        startDate: z.iso.date(),
+        endDate: z.iso.date(),
+        attributionDays: z.number().int().min(1).max(30),
+        lossBudgetCents: cents.positive(),
+      })
+      .strict()
+      .parse(req.body);
+    res.json(
+      service.setupWave({
+        ...input,
+        testId: String(req.params.id),
+        waveId: String(req.params.waveId),
+      }),
+    );
+  });
+
+  app.post('/api/profit-control/tests/:id/waves/:waveId/evaluate', (req, res) => {
+    const input = z
+      .object({ dataset: z.literal('workspace'), clientId: id })
+      .strict()
+      .parse(req.body);
+    res.json(
+      service.evaluateWave(
+        input.dataset,
+        input.clientId,
+        String(req.params.id),
+        String(req.params.waveId),
+      ),
+    );
+  });
+
+  app.post('/api/profit-control/tests/:id/waves/:waveId/decision', (req, res) => {
+    const input = z
+      .object({
+        dataset: z.literal('workspace'),
+        clientId: id,
+        action: z.enum(['next-wave', 'complete', 'stop']),
+      })
+      .strict()
+      .parse(req.body);
+    res.json(
+      service.advanceTest(
+        input.dataset,
+        input.clientId,
+        String(req.params.id),
+        String(req.params.waveId),
+        input.action,
+      ),
+    );
   });
 }

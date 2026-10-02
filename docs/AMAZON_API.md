@@ -35,6 +35,8 @@ Orbit collects six daily Reporting v3 products:
 | Product-target search term | `spSearchTerm`        | `searchTerm` | Matched-ASIN discovery and product-target waste review |
 | Advertised product         | `spAdvertisedProduct` | `advertiser` | ASIN and same-SKU purchases, units, and sales          |
 
+The bootstrap Brain collects all six grains. A client-scoped read-only Amazon connection collects campaign, advertised-product, keyword, and product-target grains; the latter two feed exact Profit control wave bindings. Search-term discovery and proposal execution remain in the Brain boundary.
+
 Keyword reports explicitly filter to `BROAD`, `PHRASE`, and `EXACT`. Product-target reports use the separate `TARGETING_EXPRESSION` and `TARGETING_EXPRESSION_PREDEFINED` filters. This keeps keyword and product evidence in different measured cells. Amazon's `*` search-term placeholder is retained but never harvested or negated.
 
 Orbit preserves every product-target expression for inspection. A single uppercase `ASIN_SAME_AS` value is also recorded as a directly verifiable ASIN. Category, brand, refinement, and automatic expressions are never converted into an ASIN and remain observe-only.

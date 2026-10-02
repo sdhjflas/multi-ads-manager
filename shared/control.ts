@@ -115,12 +115,125 @@ export interface OptimizerRun {
   createdAt: string;
 }
 
+export type ProfitAssetKind = 'image' | 'video' | 'copy' | 'landing-page';
+
+export interface ProfitAsset {
+  id: string;
+  dataset: Dataset;
+  clientId: string;
+  itemId: string;
+  itemName: string;
+  kind: ProfitAssetKind;
+  name: string;
+  version: number;
+  contentHash: string;
+  sourceRef: string;
+  status: 'draft' | 'approved' | 'superseded';
+  rightsApproved: boolean;
+  claimsApproved: boolean;
+  evidenceApproved: boolean;
+  approvalNote: string;
+  supersedesId: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+}
+
+export interface ProfitCandidateBinding {
+  id: string;
+  dataset: Dataset;
+  clientId: string;
+  testId: string;
+  candidateId: string;
+  connectionId: string;
+  provider: SourceProvider;
+  sourceKind: 'ad' | 'keyword' | 'product-target';
+  externalId: string;
+  sourceName: string;
+  parentCampaignId: string;
+  variant: string | null;
+  createdAt: string;
+}
+
+export interface ProfitExperimentSource {
+  connectionId: string;
+  connectionName: string;
+  provider: SourceProvider;
+  sourceKind: ProfitCandidateBinding['sourceKind'];
+  externalId: string;
+  sourceName: string;
+  parentCampaignId: string;
+  variant: string | null;
+}
+
+export type ProfitCandidateVerdict =
+  | 'winner'
+  | 'promising'
+  | 'viable'
+  | 'inconclusive'
+  | 'below-hurdle'
+  | 'loss-limit';
+
+export interface ProfitCandidateResult {
+  candidateId: string;
+  label: string;
+  impressions: number;
+  clicks: number;
+  spendCents: number;
+  attributedPurchases: number;
+  attributedRevenueCents: number;
+  costPerPurchaseCents: number | null;
+  screeningContributionCents: number;
+  riskCents: number;
+  evidenceRows: number;
+  sourceFingerprint: string;
+  verdict: ProfitCandidateVerdict;
+  reason: string;
+}
+
+export interface ProfitWaveAsset {
+  id: string;
+  kind: ProfitAssetKind;
+  name: string;
+  version: number;
+  contentHash: string;
+}
+
+export interface ProfitTestWave {
+  id: string;
+  dataset: Dataset;
+  clientId: string;
+  testId: string;
+  sequence: number;
+  status: 'setup' | 'running' | 'decided' | 'cancelled';
+  registration: 'prospective' | 'historical' | null;
+  candidateIds: string[];
+  assetVersions: ProfitWaveAsset[];
+  economics: ProfitEconomics | null;
+  reportingTimezone: string | null;
+  lossBudgetCents: number;
+  startDate: string | null;
+  endDate: string | null;
+  attributionDays: number | null;
+  expectedMatureAt: string | null;
+  launchedAt: string | null;
+  evaluatedAt: string | null;
+  results: ProfitCandidateResult[];
+  totalSpendCents: number;
+  totalRiskCents: number;
+  recommendation: 'next-wave' | 'complete' | 'stop' | 'inconclusive' | null;
+  reason: string;
+  evidenceFingerprint: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProfitTestCandidate {
   id: string;
   label: string;
   kind: 'keyword' | 'product-target' | 'hook' | 'headline' | 'audience' | 'landing-page';
   provenance: string;
-  status: 'queued' | 'active' | 'held' | 'rejected';
+  status: 'queued' | 'active' | 'held' | 'rejected' | 'winner' | 'completed';
+  binding: ProfitCandidateBinding | null;
 }
 
 export interface ProfitTestPlan {
@@ -135,7 +248,10 @@ export interface ProfitTestPlan {
   maxConcurrent: number;
   status: 'draft' | 'ready' | 'running' | 'completed' | 'cancelled';
   assetEvidenceApproved: boolean;
+  assetIds: string[];
   candidates: ProfitTestCandidate[];
+  waves: ProfitTestWave[];
+  outcome: 'winner' | 'inconclusive' | 'loss-limit' | 'stopped' | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -148,6 +264,7 @@ export interface ProfitControlView {
   candidates: MappingCandidate[];
   pools: ProfitBudgetPool[];
   runs: OptimizerRun[];
+  assets: ProfitAsset[];
   tests: ProfitTestPlan[];
   readiness: {
     ready: boolean;

@@ -340,7 +340,12 @@ export class ConnectionService {
           const incremental =
             (connection.provider === 'shopify' && kind === 'order-line') ||
             (connection.provider === 'meta-ads' && kind === 'insight') ||
-            (connection.provider === 'pbs' && kind === 'settlement');
+            (connection.provider === 'pbs' && kind === 'settlement') ||
+            (connection.provider === 'amazon-ads' &&
+              Boolean(result.pending) &&
+              ['insight', 'advertised-product', 'keyword-insight', 'product-target-insight'].includes(
+                kind,
+              ));
           this.repository.replaceObjects(connection.id, kind, items, finished, !incremental);
         }
         return this.project(connection, result, finished);
@@ -348,6 +353,10 @@ export class ConnectionService {
       const counts: ConnectionCounts = {
         ...emptyConnectionCounts(),
         ...result.counts,
+        insights:
+          connection.provider === 'amazon-ads' && result.pending
+            ? Math.max(connection.health.counts.insights, result.counts.insights || 0)
+            : result.counts.insights || 0,
         unmapped: Math.max(result.counts.unmapped || 0, projected.unmapped),
       };
       const partial = counts.unmapped > 0 || Boolean(result.pending);
@@ -365,16 +374,6 @@ export class ConnectionService {
             }
           : capability,
       );
-      const brainProfileLinked =
-        connection.provider !== 'amazon-ads' ||
-        (connection.clientId === `${connection.dataset}-default-client` &&
-          this.store
-            .accounts(connection.dataset)
-            .some(
-              (account) =>
-                account.connector === 'amazon-ads' &&
-                account.profileId === result.identity.externalAccountId,
-            ));
       connection = {
         ...connection,
         externalAccountId: result.identity.externalAccountId,
@@ -392,13 +391,6 @@ export class ConnectionService {
                 state: 'pending' as const,
                 detail: 'Amazon report jobs are still generating and will be polled automatically.',
               }
-            :
-          capability.key === 'reports' && !brainProfileLinked
-            ? {
-                ...capability,
-                state: 'pending' as const,
-                detail: 'Link this verified profile in The brain to start Reporting v3 jobs.',
-              }
             : capability,
         ),
         health: {
@@ -409,9 +401,9 @@ export class ConnectionService {
               : `Source collection completed; ${counts.unmapped} identities still need mapping.`
             : result.warnings[0] || 'Source collection and reconciliation completed.',
           lastAttemptAt: started.toISOString(),
-          lastSuccessAt: finished.toISOString(),
-          watermark: result.watermark,
-          sourceAsOf: result.sourceAsOf,
+          lastSuccessAt: result.pending ? connection.health.lastSuccessAt : finished.toISOString(),
+          watermark: result.pending ? connection.health.watermark : result.watermark,
+          sourceAsOf: result.pending ? connection.health.sourceAsOf : result.sourceAsOf,
           nextSyncAt: next,
           counts,
         },

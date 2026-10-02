@@ -147,7 +147,7 @@ Our proposed sequence:
 6. Scale in bounded steps, measuring **marginal** profit and fatigue after each step.
 7. Record the outcome and conditions so future hypotheses can reuse a lesson without treating another client's result as proof.
 
-The current application implements libraries, shortlist limits, campaign-level recommendations, and normalized measured keyword/product-target/creative-cell imports. Target evidence is checked against parent campaign totals and can seed a new draft with provenance. It does **not** automatically map every drafted candidate to a live experimental arm, consume native search-term exports, or execute platform experiments.
+The current application implements libraries, shortlist limits, campaign-level recommendations, normalized measured keyword/product-target/creative-cell imports, native Amazon search-term ingestion, and a client-scoped measured-wave workflow. Profit control can bind each active arm to an exact eligible Meta ad, Amazon keyword, or Amazon product target and advance bounded screening waves after attribution maturity. It does **not** create the platform arms, guarantee randomized delivery, produce creative media, or execute a platform-native experiment.
 
 ## 5. What must be learned from the first pilot
 

@@ -411,7 +411,7 @@ describe('commerce API at portfolio scale', () => {
       preorder_capacity_units: '',
       safety_stock_units: '20',
       reorder_point_units: '30',
-      inventory_verified_at: now.toISOString(),
+      inventory_verified_at: new Date().toISOString(),
       inventory_max_age_hours: '168',
     };
     return commerceProductHeaders.map((header) => values[header]).join(',');

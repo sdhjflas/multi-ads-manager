@@ -117,7 +117,20 @@ See [Connected observation](CONNECTIONS.md).
 
 See [Client profit control](PROFIT_CONTROL.md).
 
-Remaining from Milestones 1–3: live-account authorization evidence, Shopify dispute/chargeback collection, Meta event-quality and creative-asset provenance, TikTok, hosted identity/PostgreSQL tenancy, placement and complex product-expression actions, measured wave advancement, and a supervised pilot with real accounts.
+## Milestone 0.10 — implemented measured experiment control
+
+- Immutable commerce asset versions with SHA-256 identity, source reference, rights/claims/evidence approvals, approval records, and explicit supersession.
+- Exact candidate bindings to eligible Meta ads, Amazon keywords, or Amazon product targets under the profit item's mapped campaign.
+- Multi-wave test progression with bounded active arms, held candidate libraries, and a prior screening leader retained as the next control.
+- Prospective or explicitly historical registration with frozen source asset hashes, same-campaign identities, account-timezone windows, attribution maturity, verified economics snapshots, and wave loss boundaries before any result is calculated.
+- Source-refresh gates after maturity, target-level evidence aggregation, per-arm verdicts and reasons, and SHA-256 evidence fingerprints.
+- Restart-safe client-scoped Amazon campaign, advertised-product, keyword, and product-target reports for both bootstrap and secondary clients.
+- Operator completion/stop decisions and immutable audit events; wave registration and evaluation perform no platform write.
+- Product and book API tests plus a responsive browser workflow covering asset registration and a large candidate queue.
+
+See [Client profit control](PROFIT_CONTROL.md).
+
+Remaining from Milestones 1–3: live-account authorization evidence, Shopify dispute/chargeback collection, Meta event-quality verification, TikTok, hosted identity/PostgreSQL tenancy, placement and complex product-expression actions, platform-native randomized confirmation, and a supervised pilot with real accounts.
 
 ## Milestone 1 — connected observation, two equal tracks
 

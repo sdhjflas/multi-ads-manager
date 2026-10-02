@@ -74,7 +74,7 @@ The request and response contracts follow Amazon's documented v3 report types an
 
 ## Storage
 
-SQLite schema version 8 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, advertised-product rows, and the encrypted connection/job tables. Keyword and product-target performance reuse the target tables, so the Target explorer and test waves see both as measured cells.
+SQLite schema version 10 includes accounts, platform snapshots, search terms, proposals, execution attempts, sync runs, ledger entries, AI reviews, durable Amazon report jobs/sync plans, a book catalog, campaign-to-book bindings, advertised-product rows, encrypted connection/job tables, and client-scoped profit assets, test waves, and candidate bindings. Keyword and product-target performance reuse the target tables, so the Target explorer and measured-wave workflows see both as measured cells.
 
 ## Boundaries
 

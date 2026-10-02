@@ -1166,7 +1166,7 @@ export function App() {
               <OrbitLogo small />A little more signal. A little less guesswork.
             </span>
             <span>
-              Orbit v0.9<span className="footer-dot">·</span>Client profit control
+              Orbit v0.10<span className="footer-dot">·</span>Measured experiment control
               <ShieldCheck size={12} />
             </span>
           </footer>
